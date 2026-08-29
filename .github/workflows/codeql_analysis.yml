@@ -12,9 +12,9 @@
 name: CodeQL Analysis
 
 on:
-  schedule:
+  #schedule:
     # At 12:00 every day.
-    - cron:  '0 12 * * *'
+    #- cron:  '0 12 * * *'
   # Or by request
   workflow_dispatch:
 
