@@ -32,6 +32,7 @@
 #include <common/utils.h>
 
 #include <map/entities/mob_entity.h> // xi::RoamFlag::Worm
+#include <map/roam_region.h>
 
 #include <algorithm>
 #include <memory>
@@ -41,6 +42,9 @@ namespace
 
 // Cap for AddPoints; patrol paths may exceed it, other callers are truncated with a warning.
 constexpr size_t kMaxPathPoints = 50;
+
+// region points tried for a recovery walk before settling for a far one
+constexpr int kRecoveryPointAttempts = 8;
 
 } // namespace
 
@@ -89,16 +93,16 @@ auto CPathFind::PathToImpl(const position_t& point, uint8 pathFlags) -> bool
     return found;
 }
 
-auto CPathFind::RoamAround(const position_t& point, float maxRadius, uint8 maxTurns, xi::RoamFlag roamFlags) -> bool
+auto CPathFind::RoamAround(const position_t& point, float maxRadius, uint8 minTurns, uint8 maxTurns, xi::RoamFlag roamFlags, const RoamRegion* region) -> bool
 {
     TracyZoneScoped;
     TracyZoneString(owner_->name());
 
     Clear();
 
-    roamFlags_ = roamFlags;
-
-    if (FindRandomPath(point, maxRadius, maxTurns, roamFlags))
+    roamFlags_  = roamFlags;
+    roamRegion_ = region;
+    if (FindRandomPath(point, maxRadius, minTurns, maxTurns, roamFlags, region))
     {
         return true;
     }
@@ -202,7 +206,30 @@ auto CPathFind::ValidPosition(const position_t& pos) const -> bool
     TracyZoneScoped;
     TracyZoneString(owner_->name());
 
-    return navMesh().validPosition(pos);
+    constexpr auto maxEntryAge = 10s;
+
+    const auto now   = timer::now();
+    const auto begin = validPositionCache_.begin();
+
+    for (std::size_t i = 0; i < validPositionCacheCount_; ++i)
+    {
+        const auto& entry = validPositionCache_[i];
+        if (!isWithinDistance(entry.position, pos, 0.05f) || now - entry.checkedAt >= maxEntryAge)
+        {
+            continue;
+        }
+
+        // Promote the hit to the front so one-shot probes evict each other rather than it.
+        std::rotate(begin, begin + i, begin + i + 1);
+
+        return validPositionCache_.front().valid;
+    }
+
+    std::rotate(begin, validPositionCache_.end() - 1, validPositionCache_.end());
+    validPositionCache_.front() = { pos, now, navMesh().validPosition(pos) };
+    validPositionCacheCount_    = std::min(validPositionCacheCount_ + 1, kValidPositionCacheSize);
+
+    return validPositionCache_.front().valid;
 }
 
 auto CPathFind::NearValidPosition(const position_t& pos) const -> bool
@@ -330,7 +357,8 @@ auto CPathFind::StepToInternal(const position_t& pos, bool run, float stopShort)
     const float speed = [&]() -> float
     {
         const auto baseSpeed = owner_->baseSpeed();
-        if (owner_->isMobEntity() && baseSpeed == 0 && ((roamFlags_ & xi::RoamFlag::Worm) != xi::RoamFlag::None))
+        // baseSpeed is an integer compare and isMobEntity() is a dynamic_cast, so test it first.
+        if (baseSpeed == 0 && ((roamFlags_ & xi::RoamFlag::Worm) != xi::RoamFlag::None) && owner_->isMobEntity())
         {
             return 20.0f;
         }
@@ -371,6 +399,33 @@ auto CPathFind::FindPathInternal(const position_t& start, const position_t& end)
         return false;
     }
 
+    // cut the path where it first leaves the region, unless this walk brings the mob back onto it
+    if (roamRegion_ && !recoveringToRegion_)
+    {
+        auto from = start;
+        for (std::size_t i = 0; i < built->points.size(); ++i)
+        {
+            const auto& to     = built->points[i].position;
+            const float length = distance(from, to, true);
+            if (length > 0.0f)
+            {
+                const Vector3 direction{ .x = (to.x - from.x) / length, .y = 0.0f, .z = (to.z - from.z) / length };
+                const float   allowed = roamRegion_->clampToRegion(from, direction, length);
+                if (allowed < length)
+                {
+                    const position_t edge{ from.x + direction.x * allowed, from.y + (to.y - from.y) * allowed / length, from.z + direction.z * allowed, 0, 0 };
+
+                    built->points.resize(i);
+                    built->points.emplace_back(pathpoint_t{ edge, 0s, false });
+                    built->isPartial = true;
+                    break;
+                }
+            }
+
+            from = to;
+        }
+    }
+
     path_.assign(std::move(built->points), built->isPartial);
     return !path_.empty();
 }
@@ -385,20 +440,46 @@ auto CPathFind::BuildDirectPath(const position_t& end) -> bool
     return true;
 }
 
-auto CPathFind::FindRandomPath(const position_t& start, float maxRadius, uint8 maxTurns, xi::RoamFlag roamFlags) -> bool
+auto CPathFind::FindRandomPath(const position_t& start, float maxRadius, uint8 minTurns, uint8 maxTurns, xi::RoamFlag roamFlags, const RoamRegion* region) -> bool
 {
     TracyZoneScoped;
     TracyZoneString(owner_->name());
 
     const pathfind::NavPathBuilder builder{ navMesh() };
 
-    auto turnPoints = builder.findRoamTurnPoints(start, maxRadius, maxTurns);
+    auto turnPoints = builder.findRoamTurnPoints(start, maxRadius, minTurns, maxTurns, region);
     if (!turnPoints)
     {
         // Hard navmesh failure - bail rather than partially populate the turn list.
         return false;
     }
     turnPoints_ = std::move(*turnPoints);
+
+    // nothing to walk to from here: path to a nearby point of the region with the full navmesh
+    if (turnPoints_.empty() && region)
+    {
+        Maybe<position_t> target;
+        for (int attempt = 0; attempt < kRecoveryPointAttempts; ++attempt)
+        {
+            const auto candidate = region->randomPoint(&navMesh());
+            if (!candidate)
+            {
+                break;
+            }
+
+            target = candidate;
+            if (isWithinDistance(owner_->position(), *candidate, maxRadius * 2.0f, true))
+            {
+                break;
+            }
+        }
+
+        if (target)
+        {
+            turnPoints_.push_back(*target);
+            recoveringToRegion_ = true;
+        }
+    }
 
     // Path to the first turn only; later turns chain in FinishedPath().
     // Turns are sampled around the anchor, but the walk starts from wherever the owner is.
@@ -485,6 +566,7 @@ auto CPathFind::Clear() -> void
     distanceFromPoint_ = 0;
     pathFlags_         = 0;
     roamFlags_         = xi::RoamFlag::None;
+    roamRegion_        = nullptr;
 
     path_.clear();
 
@@ -498,6 +580,7 @@ auto CPathFind::Clear() -> void
 
     currentTurn_ = 0;
     turnPoints_.clear();
+    recoveringToRegion_ = false;
 
     // Drop any in-flight chunked sequence; the next PathTo / PathInRange starts fresh.
     chunked_.clear();
@@ -574,6 +657,8 @@ auto CPathFind::FinishedPath() -> void
         }
         return;
     }
+
+    recoveringToRegion_ = false;
 
     // Patrol paths loop forever while still roaming.
     if (IsPatrolling() && owner_->isRoaming())

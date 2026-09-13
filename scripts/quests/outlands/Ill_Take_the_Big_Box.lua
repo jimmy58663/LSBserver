@@ -133,7 +133,7 @@ quest.sections =
                 end,
 
                 [94] = function(player, csid, option, npc)
-                    npcUtil.giveKeyItem(player, xi.ki.SEANCE_STAFF)
+                    npcUtil.giveKeyItem(player, xi.keyItem.SEANCE_STAFF)
                     quest:setVar(player, 'Prog', 4)
                 end,
             },
@@ -143,7 +143,7 @@ quest.sections =
         {
             onZoneIn = function(player, prevZone)
                 if quest:getVar(player, 'Prog') == 5 then
-                    return { 1101, -1, bit.bor(xi.cutsceneFlag.UNKNOWN_1, xi.cutsceneFlag.NO_PCS, xi.cutsceneFlag.NO_NPCS) }
+                    return { 1101, -1, bit.bor(xi.cutsceneFlag.RESET_CAMERA, xi.cutsceneFlag.NO_PCS, xi.cutsceneFlag.NO_NPCS) }
                 end
             end,
 
@@ -151,7 +151,7 @@ quest.sections =
             {
                 [1101] = function(player, csid, option, npc)
                     if quest:complete(player) then
-                        player:delKeyItem(xi.ki.SEANCE_STAFF)
+                        player:delKeyItem(xi.keyItem.SEANCE_STAFF)
                     end
                 end,
             },

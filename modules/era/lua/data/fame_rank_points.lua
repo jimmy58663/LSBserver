@@ -5,13 +5,7 @@
 -----------------------------------
 require('modules/module_utils')
 -----------------------------------
-local moduleName = 'old_fame_rank_points'
-
-if xi.module.isContentEnabled('ROV') then
-    return { name = moduleName }
-end
-
-local m = Module:new(moduleName)
+local m = Module:new('old_fame_rank_points', xi.pre(xi.expansion.ROV))
 
 m:addOverride('xi.server.onServerStart', function()
     super()
@@ -28,6 +22,19 @@ m:addOverride('xi.server.onServerStart', function()
         [8] = 2200,
         [9] = 2450,
     }
-end)
 
-return m
+    -- Namonutice event 31 and Mendi event 82 are special cases
+    -- For whatever reason the fame values are baked into the client, don't ask
+    xi.data.fame.fameConversionPoints =
+    {
+        [1] = 0,
+        [2] = 50,
+        [3] = 125,
+        [4] = 225,
+        [5] = 325,
+        [6] = 425,
+        [7] = 488,
+        [8] = 550,
+        [9] = 613,
+    }
+end)

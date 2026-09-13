@@ -32,18 +32,20 @@ When a status effect is gained twice on a player. It can do one or more of the f
 #include "common/logging.h"
 
 #include "common/timer.h"
+#include "data/datasets/status_effects/dataset.h"
 #include "data/enums/weather.h"
 
 #include <common/database.h>
 #include <common/types/hash_map.h>
 
+#include <algorithm>
 #include <array>
 #include <cstring>
 
 #include "map_constants.h"
 
-#include "data/loader.h"
 #include "lua/luautils.h"
+#include "utils/dataset_loader.h"
 
 #include "ai/ai_container.h"
 #include "ai/states/inactive_state.h"
@@ -71,6 +73,8 @@ When a status effect is gained twice on a player. It can do one or more of the f
 namespace effects
 {
 
+using StatusEffectsDataset = xi::data::datasets::status_effects::Dataset;
+
 // Default effect of statuses are overwrite if equal or higher
 struct EffectParams_t
 {
@@ -96,7 +100,7 @@ void LoadEffectsParameters()
         EffectsParams[static_cast<uint16>(i)].Flag = xi::StatusEffectFlag::None;
     }
 
-    for (const auto& [id, data] : LoadStatusEffects())
+    for (const auto& [id, data] : xi::data::loadDataset<StatusEffectsDataset>())
     {
         if (id >= MAX_EFFECTID)
         {
@@ -324,6 +328,18 @@ bool CStatusEffectContainer::CanGainStatusEffect(CStatusEffect* PStatusEffect)
             break;
         case xi::StatusEffect::Petrification:
             if (m_POwner->hasImmunity(xi::Immunity::Petrify))
+            {
+                return false;
+            }
+            break;
+        case xi::StatusEffect::CurseI:
+            if (m_POwner->hasImmunity(xi::Immunity::Curse))
+            {
+                return false;
+            }
+            break;
+        case xi::StatusEffect::CurseIi:
+            if (m_POwner->hasImmunity(xi::Immunity::Curse))
             {
                 return false;
             }
@@ -566,9 +582,6 @@ bool CStatusEffectContainer::AddStatusEffect(std::unique_ptr<CStatusEffect> PSta
 
 void CStatusEffectContainer::DeleteStatusEffects()
 {
-    TracyZoneScoped;
-    TracyZoneString(m_POwner->getName());
-
     bool update_icons    = false;
     bool effects_removed = false;
     for (auto effect_iter = m_StatusEffectSet.begin(); effect_iter != m_StatusEffectSet.end();)
@@ -2055,9 +2068,13 @@ void CStatusEffectContainer::TickRegen(timer::time_point tick)
             PChar = (CCharEntity*)m_POwner;
         }
 
-        int16 regen   = m_POwner->getMod(xi::Mod::REGEN);
+        // Regen / Refresh are clamped to 0 so that negative values don't drain HP/MP from the player.
+        // A busted Dancer(Regen) or Evoker(Refresh) carry negative values but do not cause the player to lose HP/MP.
+        // Negative values will only counteract a positive regen or refresh value.
+        // This is an abnormal way of handling this, for intentional degens, use REGEN_DOWN or REFRESH_DOWN instead.
+        int16 regen   = std::max<int16>(m_POwner->getMod(xi::Mod::REGEN), 0);
         int16 poison  = m_POwner->getMod(xi::Mod::REGEN_DOWN);
-        int16 refresh = m_POwner->getMod(xi::Mod::REFRESH) - m_POwner->getMod(xi::Mod::REFRESH_DOWN);
+        int16 refresh = std::max<int16>(m_POwner->getMod(xi::Mod::REFRESH), 0) - m_POwner->getMod(xi::Mod::REFRESH_DOWN);
         int16 regain  = m_POwner->getMod(xi::Mod::REGAIN) - m_POwner->getMod(xi::Mod::REGAIN_DOWN);
         m_POwner->addHP(regen);
 

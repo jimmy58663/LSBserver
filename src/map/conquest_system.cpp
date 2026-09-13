@@ -105,6 +105,28 @@ void AddInfluencePoints(int points, unsigned int nation, REGION_TYPE region)
     });
 }
 
+void AddMobKills(int32 count, REGION_TYPE region)
+{
+    message::send(ipc::ConquestEvent{
+        .type    = ConquestMessage::M2W_AddMobKills,
+        .payload = ipc::toBytes(ConquestAddCounter{
+            .count  = count,
+            .region = static_cast<uint8>(region),
+        }),
+    });
+}
+
+void AddPlayerHomepoints(int32 count, REGION_TYPE region)
+{
+    message::send(ipc::ConquestEvent{
+        .type    = ConquestMessage::M2W_AddPlayerHomepoints,
+        .payload = ipc::toBytes(ConquestAddCounter{
+            .count  = count,
+            .region = static_cast<uint8>(region),
+        }),
+    });
+}
+
 /************************************************************************
  *    GainInfluencePoints                                               *
  *    +1 point for nation                                               *
@@ -112,75 +134,9 @@ void AddInfluencePoints(int points, unsigned int nation, REGION_TYPE region)
 
 void GainInfluencePoints(CCharEntity* PChar, uint32 points)
 {
-    points += (uint32)(PChar->getMod(xi::Mod::CONQUEST_REGION_BONUS) / 100.0);
+    const double percentage = 1.0 + static_cast<double>(PChar->getMod(xi::Mod::CONQUEST_REGION_BONUS)) / 100.0;
+    points                  = static_cast<uint32>(static_cast<double>(points) * percentage);
     conquest::AddInfluencePoints(points, PChar->profile.nation, PChar->loc.zone->GetRegionID());
-}
-
-/************************************************************************
- *    LoseInfluencePoints                                                *
- *    -x point for nation                                               *
- *    +x point for beastmen                                              *
- ************************************************************************/
-
-void LoseInfluencePoints(CCharEntity* PChar)
-{
-    // http://wiki.ffo.jp/html/498.html
-    if (PChar->GetMLevel() < settings::get<uint8>("map.MINIMUM_LEVEL_CONQUEST_INFUENCE_LOSS"))
-    {
-        return;
-    }
-
-    REGION_TYPE region = PChar->loc.zone->GetRegionID();
-    int         points = 0;
-
-    switch (region)
-    {
-        case REGION_TYPE::RONFAURE:
-        case REGION_TYPE::GUSTABERG:
-        case REGION_TYPE::SARUTABARUTA:
-        {
-            points = 10;
-            break;
-        }
-        case REGION_TYPE::ZULKHEIM:
-        case REGION_TYPE::KOLSHUSHU:
-        case REGION_TYPE::NORVALLEN:
-        case REGION_TYPE::DERFLAND:
-        case REGION_TYPE::ARAGONEU:
-        {
-            points = 50;
-            break;
-        }
-        case REGION_TYPE::QUFIMISLAND:
-        case REGION_TYPE::LITELOR:
-        case REGION_TYPE::KUZOTZ:
-        case REGION_TYPE::ELSHIMO_LOWLANDS:
-        {
-            points = 75;
-            break;
-        }
-        case REGION_TYPE::VOLLBOW:
-        case REGION_TYPE::VALDEAUNIA:
-        case REGION_TYPE::FAUREGANDI:
-        case REGION_TYPE::ELSHIMO_UPLANDS:
-        {
-            points = 300;
-            break;
-        }
-        case REGION_TYPE::TULIA:
-        case REGION_TYPE::MOVALPOLOS:
-        case REGION_TYPE::TAVNAZIA:
-        {
-            points = 600;
-            break;
-        }
-        default:
-        {
-            break;
-        }
-    }
-
-    conquest::AddInfluencePoints(points, NATION_BEASTMEN, region);
 }
 
 /************************************************************************
@@ -338,7 +294,7 @@ void UpdateConquestGM(ConquestUpdate type)
     else if (type == Conquest_Update)
     {
         message::send(ipc::ConquestEvent{
-            .type = ConquestMessage::M2W_GM_WeeklyUpdate,
+            .type = ConquestMessage::M2W_GM_ConquestUpdate,
         });
     }
     else if (type == Conquest_Tally_End)
@@ -556,11 +512,12 @@ uint8 GetBalance()
     return GetBalance(sandoria, bastok, windurst, sandoria_prev, bastok_prev, windurst_prev);
 }
 
+// TODO: Retail returns 0, 0b011, 0b101, or 0b110. Bits are nations allied: Sandoria, Bastok, Windurst
 uint8 GetAlliance(uint8 sandoria, uint8 bastok, uint8 windurst)
 {
-    if (((sandoria > (bastok + windurst) && sandoria > bastok && sandoria > windurst) && sandoria > 9) ||
-        ((bastok > (sandoria + windurst) && bastok > sandoria && bastok > windurst) && bastok > 9) ||
-        ((windurst > (sandoria + bastok) && windurst > bastok && windurst > sandoria) && windurst > 9))
+    if (sandoria > bastok + windurst ||
+        bastok > sandoria + windurst ||
+        windurst > sandoria + bastok)
     {
         return 1;
     }
@@ -650,19 +607,33 @@ uint32 AddConquestPoints(CCharEntity* PChar, uint32 exp)
     // NOTE: No need to send CConquestPacket,
     // The client itself requests this packet after a fixed period of time
 
-    REGION_TYPE region = PChar->loc.zone->GetRegionID();
+    const REGION_TYPE region = PChar->loc.zone->GetRegionID();
 
     if (region != REGION_TYPE::UNKNOWN)
     {
-        // 10% if region control is player's nation
-        // 15% otherwise
+        // Follows the CP multiplier in https://www.playonline.com/comnews/200302052327.html
+        const uint8 owner      = GetRegionOwner(region);
+        const uint8 nationRank = luautils::GetNationRank(PChar->profile.nation);
 
-        double percentage = PChar->profile.nation == GetRegionOwner(region) ? 0.1 : 0.15;
+        double percentage = 0.15;
+
+        // Only different multiplier if region is not owned by beastmen and nation is not rank 1
+        if (owner <= NATION_WINDURST && nationRank > 1)
+        {
+            if (IsAlliance()) // In alliance and owner of the region is rank 1 or not.
+            {
+                percentage = luautils::GetNationRank(owner) == 1 ? 0.2 : 0.1;
+            }
+            else if (owner == PChar->profile.nation) // Player's nation owns the region
+            {
+                percentage = 0.1;
+            }
+        }
+
         percentage += PChar->getMod(xi::Mod::CONQUEST_BONUS) / 100.0;
-        uint32 points = (uint32)(exp * percentage);
+        const uint32 points = static_cast<uint32>(static_cast<double>(exp) * percentage);
 
         charutils::AddPoints(PChar, charutils::GetConquestPointsName(PChar).c_str(), points);
-        GainInfluencePoints(PChar, points / 2);
     }
     return 0; // added conquest points
 }
@@ -681,5 +652,7 @@ uint32 AddConquestPoints(CCharEntity* PChar, uint32 exp)
 // 1: bastok
 // 2: windurst
 // 3: beastmen
+// 4: other
+// 5: neutral
 
 }; // namespace conquest

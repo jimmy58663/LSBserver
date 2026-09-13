@@ -22,6 +22,7 @@
 #pragma once
 
 #include "common/cbasetypes.h"
+#include "common/types/flag.h"
 
 #include <memory>
 #include <string>
@@ -33,10 +34,16 @@
 using Recalculate       = xi::Flag<struct RecalculateTag>;
 using IncludeRecycleBin = xi::Flag<struct IncludeRecycleBinTag>;
 
+namespace xi
+{
+
+enum class KeyItem : uint16_t;
+
+}
+
 struct Charge_t;
 enum class MissionLog : uint8_t;
 enum class QuestLog : uint8_t;
-enum class KeyItem : uint16_t;
 class CPetEntity;
 class CMobEntity;
 class CAbility;
@@ -77,8 +84,8 @@ namespace charutils
 
 void LoadExpTable();
 void SetExpDifficultyCurve(std::vector<std::pair<uint16, EMobDifficulty>>& curve, std::pair<uint16, uint8>& incrediblyEasyPreyData);
-auto LoadChar(Scheduler& scheduler, MapConfig config, uint32 charId) -> std::unique_ptr<CCharEntity>;
-void LoadSpells(CCharEntity* PChar);
+auto LoadChar(uint32 charId) -> std::unique_ptr<CCharEntity>;
+void LoadFromCharSpellsSQL(CCharEntity* PChar);
 void LoadInventory(CCharEntity* PChar);
 void LoadEquip(CCharEntity* PChar);
 
@@ -107,7 +114,7 @@ void DelExperiencePoints(CCharEntity* PChar, float retainpct, uint16 forcedXpLos
 void DistributeExperiencePoints(CCharEntity* PChar, CMobEntity* PMob);
 void DistributeGil(CCharEntity* PChar, CMobEntity* PMob);
 void DistributeItem(CCharEntity* PChar, CBaseEntity* PEntity, uint16 itemid, uint16 droprate);
-void AddExperiencePoints(bool expFromRaise, bool awardRegionPoints, bool fromScripts, CCharEntity* PChar, CBaseEntity* PMob, uint32 exp, EMobDifficulty mobCheck = EMobDifficulty::TooWeak, bool isexpchain = false);
+void AddExperiencePoints(bool expFromRaise, bool awardRegionPoints, bool fromScripts, CCharEntity* PChar, CBaseEntity* PMob, uint32 exp, EMobDifficulty mobCheck = EMobDifficulty::TooWeak, bool isexpchain = false, bool allowLimitPoints = true);
 
 uint16 AddCapacityBonus(CCharEntity* PChar, uint16 capacityPoints);
 void   AddCapacityPoints(CCharEntity* PChar, CBaseEntity* PMob, uint32 capacityPoints, int16 levelDiff = 0, bool isCapacityChain = false);
@@ -123,42 +130,37 @@ void  BuildingCharAbilityTable(CCharEntity* PChar);
 void  BuildingCharTraitsTable(CCharEntity* PChar);
 void  BuildingCharPetAbilityTable(CCharEntity* PChar, CPetEntity* PPet, uint32 PetID);
 
-void DoTrade(CCharEntity* PChar, CCharEntity* PTarget);
-bool CanTrade(CCharEntity* PChar, CCharEntity* PTarget);
-
 void   CheckWeaponSkill(CCharEntity* PChar, uint8 skill);
 bool   HasItem(CCharEntity* PChar, uint16 ItemID, IncludeRecycleBin includeRecycleBin = IncludeRecycleBin::Yes);
 uint32 getItemCount(CCharEntity* PChar, uint16 ItemID);
-auto   AddItem(CCharEntity* PChar, uint8 LocationID, std::unique_ptr<CItem> PItem, bool silence = false) -> uint8;
-uint8  AddItem(CCharEntity* PChar, uint8 LocationID, uint16 itemID, uint32 quantity = 1, bool silence = false);
 uint8  MoveItem(CCharEntity* PChar, uint8 LocationID, uint8 SlotID, uint8 NewSlotID);
-uint32 UpdateItem(CCharEntity* PChar, uint8 LocationID, uint8 slotID, int32 quantity, bool force = false);
-void   DropItem(CCharEntity* PChar, uint8 container, uint8 slotID, int32 quantity, uint16 ItemID);
-void   CheckValidEquipment(CCharEntity* PChar);
-void   SaveJobChangeGear(CCharEntity* PChar);
-void   LoadJobChangeGear(CCharEntity* PChar);
-void   EquipItem(CCharEntity* PChar, uint8 slotID, uint8 equipSlotID, uint8 containerID);
-void   UnequipItem(CCharEntity* PChar, uint8 equipSlotID, xi::Flag<struct RecalculateTag> recalculate = Recalculate::Yes);
-bool   hasSlotEquipped(CCharEntity* PChar, uint8 equipSlotID);
-void   RemoveSub(CCharEntity* PChar);
-bool   EquipArmor(CCharEntity* PChar, uint8 slotID, uint8 equipSlotID, uint8 containerID);
-void   CheckUnarmedWeapon(CCharEntity* PChar);
-void   SetStyleLock(CCharEntity* PChar, bool isStyleLocked);
-void   UpdateWeaponStyle(CCharEntity* PChar, uint8 equipSlotID, CItemEquipment* PItem);
-void   UpdateArmorStyle(CCharEntity* PChar, uint8 equipSlotID);
-auto   canEquipItemOnAnyJob(CCharEntity* PChar, const CItemEquipment* PItem) -> bool;
-auto   hasValidStyle(CCharEntity* PChar, const CItemEquipment* PItem, const CItemEquipment* AItem) -> bool;
-void   UpdateRemovedSlotsLookForLockStyle(CCharEntity* PChar);
-void   UpdateRemovedSlotsLook(CCharEntity* PChar);
-void   AddItemToRecycleBin(CCharEntity* PChar, uint32 container, uint8 slotID, uint8 quantity);
-void   EmptyRecycleBin(CCharEntity* PChar);
 
-auto hasKeyItem(const CCharEntity* PChar, KeyItem keyItemId) -> bool; // checking the presence of a key item
-auto seenKeyItem(CCharEntity* PChar, KeyItem keyItemId) -> bool;      // checking whether the description of the key item has been read
-void markSeenKeyItem(CCharEntity* PChar, KeyItem keyItemId);          // mark key item as seen (description read)
-void unseenKeyItem(CCharEntity* PChar, KeyItem keyItemId);            // attempt to remove keyitem from seen list
-void addKeyItem(CCharEntity* PChar, KeyItem keyItemId);               // add a key item
-void delKeyItem(CCharEntity* PChar, KeyItem keyItemId);               // delete a key item
+void DropItem(CCharEntity* PChar, uint8 container, uint8 slotID, int32 quantity, uint16 ItemID);
+void CheckValidEquipment(CCharEntity* PChar, bool isDelevel = false);
+void SaveJobChangeGear(CCharEntity* PChar);
+void LoadJobChangeGear(CCharEntity* PChar);
+void EquipItem(CCharEntity* PChar, uint8 slotID, uint8 equipSlotID, uint8 containerID);
+void UnequipItem(CCharEntity* PChar, uint8 equipSlotID, xi::Flag<struct RecalculateTag> recalculate = Recalculate::Yes, bool isDelevel = false);
+bool hasSlotEquipped(CCharEntity* PChar, uint8 equipSlotID);
+void RemoveSub(CCharEntity* PChar);
+bool EquipArmor(CCharEntity* PChar, uint8 slotID, uint8 equipSlotID, uint8 containerID);
+void CheckUnarmedWeapon(CCharEntity* PChar);
+void SetStyleLock(CCharEntity* PChar, bool isStyleLocked);
+void UpdateWeaponStyle(CCharEntity* PChar, uint8 equipSlotID, CItemEquipment* PItem);
+void UpdateArmorStyle(CCharEntity* PChar, uint8 equipSlotID);
+auto canEquipItemOnAnyJob(CCharEntity* PChar, const CItemEquipment* PItem) -> bool;
+auto hasValidStyle(CCharEntity* PChar, const CItemEquipment* PItem, const CItemEquipment* AItem) -> bool;
+void UpdateRemovedSlotsLookForLockStyle(CCharEntity* PChar);
+void UpdateRemovedSlotsLook(CCharEntity* PChar);
+void AddItemToRecycleBin(CCharEntity* PChar, uint32 container, uint8 slotID, uint8 quantity);
+void EmptyRecycleBin(CCharEntity* PChar);
+
+auto hasKeyItem(const CCharEntity* PChar, xi::KeyItem keyItemId) -> bool; // checking the presence of a key item
+auto seenKeyItem(CCharEntity* PChar, xi::KeyItem keyItemId) -> bool;      // checking whether the description of the key item has been read
+void markSeenKeyItem(CCharEntity* PChar, xi::KeyItem keyItemId);          // mark key item as seen (description read)
+void unseenKeyItem(CCharEntity* PChar, xi::KeyItem keyItemId);            // attempt to remove keyitem from seen list
+void addKeyItem(CCharEntity* PChar, xi::KeyItem keyItemId);               // add a key item
+void delKeyItem(CCharEntity* PChar, xi::KeyItem keyItemId);               // delete a key item
 
 int32 hasSpell(CCharEntity* PChar, uint16 SpellID); // checking for the presence of a spell
 int32 addSpell(CCharEntity* PChar, uint16 SpellID); // add a spell
@@ -204,7 +206,6 @@ void SaveCharAppearances(const std::vector<CharAppearance>& rows);
 void PersistCharVars(const std::vector<CharVarChange>& rows);
 auto BuildCharEquipSlots(const CCharEntity* PChar) -> std::vector<CharEquipSlot>;
 auto BuildCharAppearance(const CCharEntity* PChar) -> CharAppearance;
-// void SaveCharLinkshells(CCharEntity* PChar);     // TODO: save the character's linkshells
 void SaveMissionsList(CCharEntity* PChar);          // save the missions list
 void SaveEminenceData(CCharEntity* PChar);          // save Eminence Record (RoE) data
 void SaveQuestsList(CCharEntity* PChar);            // save the list of quests
@@ -236,8 +237,6 @@ void SavePrevZoneLineID(CCharEntity* PChar, uint32 ZoneLineID); // save the last
 bool hasMogLockerAccess(const CCharEntity* PChar);              // true if have access, false otherwise
 
 uint8 getQuestStatus(CCharEntity* PChar, uint8 log, uint8 quest); // Get Quest status (used in FishingUtils.cpp, allows to fish quest specific mobs, like PLD AF NM)
-
-float AddExpBonus(CCharEntity* PChar, float exp);
 
 void RemoveAllEquipment(CCharEntity* PChar);
 

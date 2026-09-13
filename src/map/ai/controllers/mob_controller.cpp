@@ -30,6 +30,7 @@
 #include "ai/states/weaponskill_state.h"
 #include "battlefield.h"
 #include "common/utils.h"
+#include "data/enums/detects.h"
 #include "data/enums/mob_mod.h"
 #include "enmity_container.h"
 #include "entities/mob_entity.h"
@@ -37,6 +38,7 @@
 #include "mobskill.h"
 #include "party.h"
 #include "recast_container.h"
+#include "roam_region.h"
 #include "spawn_handler.h"
 #include "status_effect_container.h"
 #include "utils/battleutils.h"
@@ -48,6 +50,9 @@ namespace
 
 // Distance walked toward spawn per roam-home tick before re-evaluating.
 constexpr float kRoamHomeStepDistance = 10.0f;
+
+// A mob notices nobody for this long after spawning or losing its target.
+constexpr auto kNeutralDuration = 15s;
 
 } // namespace
 
@@ -74,7 +79,7 @@ auto CMobController::followTarget() const -> CBaseEntity*
 
 auto CMobController::Tick(const timer::time_point tick) -> Task<void>
 {
-    TracyZoneScoped;
+    TracyZoneScopedN("CMobController::Tick");
     TracyZoneString(PMob->getName());
 
     m_Tick = tick;
@@ -171,7 +176,8 @@ auto CMobController::Engage(const EntityId& target) -> bool
     // Optional opening delays so we don't immediately cast / use a special ability on engage.
     if (PMob->getMobMod(xi::MobMod::MagicDelay) != 0)
     {
-        m_nextMagicTime = m_Tick + std::chrono::seconds(PMob->getMobMod(xi::MobMod::MagicCool) + xirand::GetRandomNumber(PMob->getMobMod(xi::MobMod::MagicDelay)));
+        // Fetch remaining magic cooldown and apply magic delay on top of it.
+        m_nextMagicTime = std::max(m_nextMagicTime, m_Tick) + std::chrono::seconds(xirand::GetRandomNumber(PMob->getMobMod(xi::MobMod::MagicDelay)));
     }
 
     if (PMob->getMobMod(xi::MobMod::SpecialDelay) != 0)
@@ -207,9 +213,10 @@ void CMobController::Reset()
     // Wait a little while before roaming again.
     m_LastActionTime = m_Tick - std::chrono::seconds(xirand::GetRandomNumber(PMob->getMobMod(xi::MobMod::RoamCool)));
 
-    // Don't attack player right off of spawn
+    // Don't attack player right off of spawn // Don't cast magic immediately either
     PMob->m_neutral = true;
     m_NeutralTime   = m_Tick;
+    m_nextMagicTime = m_Tick + 1500ms;
 
     setTarget(nullptr);
     ClearFollowTarget();
@@ -277,35 +284,47 @@ auto CMobController::MobSkill(int listId) -> bool
     }();
 
     auto skillList = battleutils::GetMobSkillList(resolvedListId);
+    std::erase_if(skillList,
+                  [&](const uint16 skillId)
+                  {
+                      if (battleutils::GetMobSkill(skillId) != nullptr)
+                      {
+                          return false;
+                      }
+                      ShowError("Mobskill with ID (%i) [called from skill-list ID (%i)] isn't properly defined in mob_skills.sql", skillId, resolvedListId);
+                      return true;
+                  });
     if (skillList.empty())
     {
         return false;
     }
     std::shuffle(skillList.begin(), skillList.end(), xirand::rng());
 
-    // Pick the first valid mob skill from the shuffled list.
-    const uint16 firstValidSkillId = [&]() -> uint16
+    // Lua may override the skill
+    // We used that isntead of the shuffled list
+    const auto overrideSkill = luautils::OnMobMobskillChoose(PMob, PTarget, skillList.front());
+    if (overrideSkill > 0)
     {
-        for (const auto skillId : skillList)
+        return TryMobSkill(overrideSkill, PTarget);
+    }
+
+    // Start at the top of the list after the shuffle, first one that returns 0 wins
+    for (const auto skillId : skillList)
+    {
+        if (TryMobSkill(skillId, PTarget))
         {
-            if (battleutils::GetMobSkill(skillId) != nullptr)
-            {
-                return skillId;
-            }
-            ShowError("CMobController::MobSkill -> Mobskill with ID (%i) [called from skill-list ID (%i)] isn't properly defined in mob_skills.sql", skillId, resolvedListId);
+            return true;
         }
-        return 0;
-    }();
+    }
 
-    // Lua may override the chosen skill.
-    const uint16 chosenSkillId = [&]() -> uint16
-    {
-        const auto overrideSkill = luautils::OnMobMobskillChoose(PMob, PTarget, firstValidSkillId);
-        return overrideSkill > 0 ? overrideSkill : firstValidSkillId;
-    }();
+    return false;
+}
 
-    auto* PMobSkill = battleutils::GetMobSkill(chosenSkillId);
-    if (!PMobSkill)
+// Try to use the given skill on the target
+auto CMobController::TryMobSkill(const uint16 skillId, CBattleEntity* PTarget) -> bool
+{
+    auto* PMobSkill = battleutils::GetMobSkill(skillId);
+    if (!PMobSkill || PMobSkill->isAstralFlow())
     {
         return false;
     }
@@ -322,10 +341,7 @@ auto CMobController::MobSkill(int listId) -> bool
     }
     PActionTarget = luautils::OnMobSkillTarget(PActionTarget, PMob, PMobSkill);
 
-    // NOTE: OnMobSkillReadyTime runs unconditionally so its Lua side effects still fire.
-    const auto mobSkillReadyTime = luautils::OnMobSkillReadyTime(PActionTarget, PMob, PMobSkill);
-
-    if (!PActionTarget || PMobSkill->isAstralFlow())
+    if (!PActionTarget)
     {
         return false;
     }
@@ -341,6 +357,8 @@ auto CMobController::MobSkill(int listId) -> bool
     {
         return false;
     }
+
+    const auto mobSkillReadyTime = luautils::OnMobSkillReadyTime(PActionTarget, PMob, PMobSkill);
 
     return MobSkill(PActionTarget->entityId(), PMobSkill->getID(), mobSkillReadyTime);
 }
@@ -604,8 +622,6 @@ void CMobController::ClearFollowTarget()
 
 auto CMobController::CheckHide(const CBattleEntity* PTarget) const -> bool
 {
-    TracyZoneScoped;
-
     if (!PTarget || PTarget->GetMJob() != xi::Job::THF || !PTarget->StatusEffectContainer->HasStatusEffect(xi::StatusEffect::Hide))
     {
         return false;
@@ -667,7 +683,7 @@ auto CMobController::ShouldCloseToTarget(const float currentDistance) -> bool
     }
 
     // Spawn leash: don't chase past the configured tether distance.
-    if (PMob->getMobMod(xi::MobMod::SpawnLeash) > 0 && distance(PMob->loc.p, PMob->m_SpawnPoint) > PMob->getMobMod(xi::MobMod::SpawnLeash))
+    if (PMob->getMobMod(xi::MobMod::SpawnLeash) > 0 && PMob->DistanceFromHome() > PMob->getMobMod(xi::MobMod::SpawnLeash))
     {
         return false;
     }
@@ -872,7 +888,7 @@ auto CMobController::CanDetectTarget(CBattleEntity* PTarget, const bool forceSig
     }
 
     const auto detects         = static_cast<xi::Detects>(PMob->getMobMod(xi::MobMod::Detection));
-    const auto currentDistance = distance(PTarget->loc.p, PMob->loc.p) + PTarget->getMod(xi::Mod::STEALTH);
+    const auto currentDistance = distance(PTarget->loc.p, PMob->loc.p);
     const bool detectSight     = ((detects & xi::Detects::Sight) != xi::Detects::None) || forceSight;
 
     // Illusion overrides true detection, but mobs that see through it still respect real sneak.
@@ -1126,7 +1142,7 @@ void CMobController::Move()
 
         if (PMob->getMobMod(xi::MobMod::AttackSkillList) > 0)
         {
-            const auto skillList = battleutils::GetMobSkillList(PMob->getMobMod(xi::MobMod::AttackSkillList));
+            const auto& skillList = battleutils::GetMobSkillList(PMob->getMobMod(xi::MobMod::AttackSkillList));
             if (!skillList.empty())
             {
                 if (const auto* skill = battleutils::GetMobSkill(skillList.front()))
@@ -1563,7 +1579,7 @@ auto CMobController::DoRoamTick(timer::time_point tick) -> Task<void>
     auto* PTarget       = target().resolve<CBattleEntity>();
     auto* PFollowTarget = followTarget();
 
-    TracyZoneScopedC(0x00FF00);
+    TracyZoneScopedNC("CMobController::DoRoamTick", 0x4C8C4A);
 
     const bool ignoreAggro = ((PMob->m_roamFlags & xi::RoamFlag::Ignore) != xi::RoamFlag::None);
 
@@ -1593,6 +1609,23 @@ auto CMobController::DoRoamTick(timer::time_point tick) -> Task<void>
         co_return;
     }
 
+    // xi::RoamFlag::Ignore mobs never accept claim.
+    if (ignoreAggro)
+    {
+        PMob->m_OwnerID.clean();
+    }
+
+    // A resting mob has nothing to decide before its next timed event.
+    const bool standingStill = !PMob->PAI->PathFind->IsFollowingPath() && !PMob->PAI->PathFind->IsPatrolling() && PFollowTarget == nullptr;
+    const bool unmoved       = PMob->loc.p.x == m_IdleCheckedPosition.x && PMob->loc.p.y == m_IdleCheckedPosition.y && PMob->loc.p.z == m_IdleCheckedPosition.z;
+    const bool nothingDue    = m_Tick < NextIdleEventTime();
+    if (standingStill && unmoved && nothingDue)
+    {
+        co_return;
+    }
+
+    m_IdleCheckedPosition = PMob->loc.p;
+
     // An idle mob with no walkable ground anywhere near it is despawned after ~2 ticks.
     // Pathing mobs are exempt (a waypoint can read off-mesh on a poly seam), as are NO_DESPAWN mobs.
     if (!PMob->PAI->PathFind->IsFollowingPath() && !PMob->PAI->PathFind->ValidPosition(PMob->loc.p))
@@ -1603,12 +1636,6 @@ auto CMobController::DoRoamTick(timer::time_point tick) -> Task<void>
             PMob->SetDespawnTime(200ms);
         }
         co_return;
-    }
-
-    // xi::RoamFlag::Ignore mobs never accept claim.
-    if (ignoreAggro)
-    {
-        PMob->m_OwnerID.clean();
     }
 
     if (PFollowTarget != nullptr && m_followType == FollowType::Roam)
@@ -1625,6 +1652,16 @@ auto CMobController::DoRoamTick(timer::time_point tick) -> Task<void>
 
         if (!PMob->PAI->PathFind->IsFollowingPath())
         {
+            // Idle followers still shed neutral and still get the roam tick.
+            PMob->m_neutral = m_Tick <= m_NeutralTime + kNeutralDuration;
+
+            if (m_Tick >= m_LastRoamScript + 3s)
+            {
+                PMob->PAI->EventHandler.triggerListener("ROAM_TICK", PMob);
+                luautils::OnMobRoam(PMob);
+                m_LastRoamScript = m_Tick;
+            }
+
             co_return;
         }
     }
@@ -1632,6 +1669,8 @@ auto CMobController::DoRoamTick(timer::time_point tick) -> Task<void>
     // Recover 10% HP and lose TP every 10s while idle.
     if (m_Tick >= m_mobHealTime + 10s && PMob->getMobMod(xi::MobMod::NoRest) == 0 && PMob->CanRest())
     {
+        TracyZoneNamed(restZone, "DoRoamTick: rest");
+
         if (PMob->Rest(0.1f))
         {
             PMob->updatemask |= UPDATE_HP;
@@ -1662,8 +1701,8 @@ auto CMobController::DoRoamTick(timer::time_point tick) -> Task<void>
         co_return;
     }
 
-    // Don't aggro for ~10s after disengaging.
-    PMob->m_neutral = PMob->CanBeNeutral() && m_Tick <= m_NeutralTime + 10s;
+    // Don't aggro for a moment after disengaging.
+    PMob->m_neutral = m_Tick <= m_NeutralTime + kNeutralDuration;
 
     // If we already have a roam path going, just keep walking it.
     if (PMob->PAI->PathFind->IsFollowingPath())
@@ -1677,6 +1716,8 @@ auto CMobController::DoRoamTick(timer::time_point tick) -> Task<void>
     }
     else if (m_Tick >= m_LastActionTime + std::chrono::seconds(PMob->getMobMod(xi::MobMod::RoamCool)))
     {
+        TracyZoneNamed(chooseZone, "DoRoamTick: choose idle action");
+
         if (PMob->GetCallForHelpFlag())
         {
             PMob->SetCallForHelpFlag(false);
@@ -1694,9 +1735,20 @@ auto CMobController::DoRoamTick(timer::time_point tick) -> Task<void>
             {
                 PMob->m_IsPathingHome = true;
 
-                if (!PMob->PAI->PathFind->IsFollowingPath() && !PMob->PAI->PathFind->PathTo(PMob->m_SpawnPoint))
+                // heading home means the nearest edge of the region, not the spot it happened to spawn on
+                const auto homePoint = [&]
                 {
-                    PMob->PAI->PathFind->PathInRange(PMob->m_SpawnPoint, PMob->m_maxRoamDistance, PATHFLAG_RUN);
+                    if (PMob->roamRegion())
+                    {
+                        return PMob->roamRegion()->closestPoint(PMob->loc.p);
+                    }
+
+                    return PMob->m_SpawnPoint;
+                }();
+
+                if (!PMob->PAI->PathFind->IsFollowingPath() && !PMob->PAI->PathFind->PathTo(homePoint))
+                {
+                    PMob->PAI->PathFind->PathInRange(homePoint, PMob->m_maxRoamDistance, PATHFLAG_RUN);
                 }
 
                 // Cap the path so we re-evaluate every few seconds instead of bee-lining home.
@@ -1725,25 +1777,33 @@ auto CMobController::DoRoamTick(timer::time_point tick) -> Task<void>
         {
             // Hiding mobs are now handled via mixin, so xi::RoamFlag::Ambush is no longer special-cased here.
             const bool battlefieldIsOpen = PMob->PBattlefield && PMob->PBattlefield->GetStatus() == BATTLEFIELD_STATUS_OPEN;
-            const bool wantsSummon       = !battlefieldIsOpen &&
-                                           PMob->GetMJob() == xi::Job::SMN &&
-                                           CanCastSpells(IgnoreRecastsAndCosts::No) &&
-                                           PMob->SpellContainer->HasBuffSpells() &&
-                                           m_Tick >= m_nextMagicTime;
-            const bool wantsRandomBuff   = CanCastSpells(IgnoreRecastsAndCosts::No) &&
-                                           xirand::GetRandomNumber(10) < 3 &&
-                                           PMob->SpellContainer->HasBuffSpells();
+
+            const auto wantsSummon = [&]
+            {
+                return !battlefieldIsOpen &&
+                       PMob->GetMJob() == xi::Job::SMN &&
+                       m_Tick >= m_nextMagicTime &&
+                       CanCastSpells(IgnoreRecastsAndCosts::No) &&
+                       PMob->SpellContainer->HasBuffSpells();
+            };
+
+            const auto wantsRandomBuff = [&]
+            {
+                return CanCastSpells(IgnoreRecastsAndCosts::No) &&
+                       xirand::GetRandomNumber(10) < 3 &&
+                       PMob->SpellContainer->HasBuffSpells();
+            };
 
             if (IsSpecialSkillReady(0) && TrySpecialSkill())
             {
                 // (Probably) spawned a pet via special skill.
             }
-            else if (wantsSummon)
+            else if (wantsSummon())
             {
                 // battlefield.lua summons the first pet so the first player sees it; later summons come through here.
                 TryCastSpell();
             }
-            else if (wantsRandomBuff)
+            else if (wantsRandomBuff())
             {
                 TryCastSpell();
             }
@@ -1757,6 +1817,9 @@ auto CMobController::DoRoamTick(timer::time_point tick) -> Task<void>
             }
             else if (PMob->CanRoam())
             {
+                const auto minTurns = static_cast<uint8>(PMob->getMobMod(xi::MobMod::RoamTurnsMin));
+                const auto maxTurns = static_cast<uint8>(PMob->getMobMod(xi::MobMod::RoamTurns));
+
                 // Worm dives underground; leave m_LastActionTime alone so it re-emerges promptly.
                 const bool isWormSurfacing = ((PMob->m_roamFlags & xi::RoamFlag::Worm) != xi::RoamFlag::None) && !PMob->IsNameHidden();
                 if (isWormSurfacing && !PMob->PAI->IsCurrentState<CMagicState>())
@@ -1783,8 +1846,7 @@ auto CMobController::DoRoamTick(timer::time_point tick) -> Task<void>
                     luautils::OnMobRoamAction(PMob);
                     m_LastActionTime = m_Tick;
                 }
-                else if (!isWormSurfacing &&
-                         PMob->PAI->PathFind->RoamAround(PMob->m_SpawnPoint, PMob->GetRoamDistance(), static_cast<uint8>(PMob->getMobMod(xi::MobMod::RoamTurns)), PMob->m_roamFlags))
+                else if (!isWormSurfacing && PMob->PAI->PathFind->RoamAround(PMob->GetRoamAnchor(), PMob->GetRoamDistance(), minTurns, maxTurns, PMob->m_roamFlags, PMob->roamRegion()))
                 {
                     if ((PMob->m_roamFlags & xi::RoamFlag::Stealth) != xi::RoamFlag::None)
                     {
@@ -1817,6 +1879,23 @@ auto CMobController::DoRoamTick(timer::time_point tick) -> Task<void>
     }
 
     co_return;
+}
+
+auto CMobController::NextIdleEventTime() const -> timer::time_point
+{
+    auto next = std::min({ m_LastActionTime + std::chrono::seconds(PMob->getMobMod(xi::MobMod::RoamCool)), m_mobHealTime + 10s, m_LastRoamScript + 3s });
+
+    if (m_WaitTime > m_Tick)
+    {
+        next = std::min(next, m_WaitTime);
+    }
+
+    if (PMob->m_neutral)
+    {
+        next = std::min(next, m_NeutralTime + kNeutralDuration);
+    }
+
+    return next;
 }
 
 void CMobController::Wait(timer::duration duration)
@@ -1853,8 +1932,11 @@ void CMobController::FollowRoamPath()
     // Path just finished this tick: schedule the next wander and handle worm/spawn-rotation cases.
     if (!PMob->PAI->PathFind->IsFollowingPath())
     {
-        const uint32 roamRandomness = std::clamp<uint32>(static_cast<uint16>(PMob->getMobMod(xi::MobMod::RoamCool) * 1000 / PMob->GetRoamRate()), 0, 120 * 1000);
-        m_LastActionTime            = m_Tick - std::chrono::milliseconds(xirand::GetRandomNumber(roamRandomness));
+        // rest a whole number of seconds drawn uniformly from [RoamCool - RoamCool * 10 / RoamRate, RoamCool]; a negative RoamRate rests exactly RoamCool
+        const uint32 roamCool  = static_cast<uint32>(std::max<int16>(PMob->getMobMod(xi::MobMod::RoamCool), 0));
+        const int16  roamRate  = PMob->getMobMod(xi::MobMod::RoamRate);
+        const uint32 roamRange = roamRate > 0 ? std::min<uint32>(roamCool * 10 / static_cast<uint32>(roamRate), roamCool) : 0;
+        m_LastActionTime       = m_Tick - std::chrono::seconds(xirand::GetRandomNumber(roamRange + 1));
 
         // Worm finished its underground roam - pop back up.
         if (((PMob->m_roamFlags & xi::RoamFlag::Worm) != xi::RoamFlag::None) && PMob->PAI->IsUntargetable())
@@ -1878,7 +1960,7 @@ void CMobController::FollowRoamPath()
         }
 
         // Snap to spawn rotation after pathing home, for mobs that must face a fixed direction.
-        if (PMob->getMobMod(xi::MobMod::RoamResetFacing) && distance(PMob->loc.p, PMob->m_SpawnPoint) <= PMob->m_maxRoamDistance)
+        if (PMob->getMobMod(xi::MobMod::RoamResetFacing) && PMob->DistanceFromHome() <= PMob->m_maxRoamDistance)
         {
             PMob->loc.p.rotation = PMob->m_SpawnPoint.rotation;
         }
@@ -1893,8 +1975,6 @@ void CMobController::FollowRoamPath()
 
 auto CMobController::IsSpecialSkillReady(const float currentDistance) const -> bool
 {
-    TracyZoneScoped;
-
     if (PMob->getMobMod(xi::MobMod::SpecialSkill) == 0)
     {
         return false;
@@ -1913,8 +1993,6 @@ auto CMobController::IsSpecialSkillReady(const float currentDistance) const -> b
 
 auto CMobController::IsSpellReady(const float& currentDistance, const float& meleeRange) const -> bool
 {
-    TracyZoneScoped;
-
     if (PMob->StatusEffectContainer->HasStatusEffect({ xi::StatusEffect::Chainspell, xi::StatusEffect::Manafont }))
     {
         return true;

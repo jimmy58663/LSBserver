@@ -22,6 +22,8 @@
 #include <array>
 #include <cstring>
 
+#include "common/types/hash_map.h"
+
 #include "lua/luautils.h"
 
 #include "blue_spell.h"
@@ -382,16 +384,6 @@ void CSpell::setRequirements(uint8 requirements)
     m_requirements = requirements;
 }
 
-uint16 CSpell::getMeritId() const
-{
-    return m_meritId;
-}
-
-void CSpell::setMeritId(uint16 meritId)
-{
-    m_meritId = meritId;
-}
-
 uint8 CSpell::getFlag() const
 {
     return m_flag;
@@ -620,22 +612,6 @@ void LoadSpellList()
             static_cast<CBlueSpell*>(PSpellList[spellId])->addModifier(CModifier(modID, value));
         }
     }
-
-    rset = db::preparedStmt("SELECT spellId, meritId, content_tag "
-                            "FROM spell_list INNER JOIN merits ON spell_list.name = merits.name");
-    FOR_DB_MULTIPLE_RESULTS(rset)
-    {
-        if (!luautils::IsContentEnabled(rset->getOrDefault<std::string>("content_tag", "")))
-        {
-            continue;
-        }
-
-        const auto spellId = rset->get<uint16>("spellId");
-        if (PSpellList[spellId])
-        {
-            PSpellList[spellId]->setMeritId(rset->get<uint16>("meritId"));
-        }
-    }
 }
 
 CSpell* GetSpellByMonsterSkillId(uint16 SkillID)
@@ -667,6 +643,31 @@ CSpell* GetSpell(SpellID SpellID)
     // False positive: this is CSpell*, so it's OK
     // cppcheck-suppress CastIntegerToAddressAtReturn
     return PSpellList[id];
+}
+
+auto lookupIdByName(const std::string_view name) -> Maybe<SpellID>
+{
+    static const auto byName = []
+    {
+        HashMap<std::string, SpellID> names;
+        for (auto* PSpell : PSpellList)
+        {
+            if (PSpell)
+            {
+                names.try_emplace(PSpell->getName(), PSpell->getID());
+            }
+        }
+
+        return names;
+    }();
+
+    const auto entry = byName.find(std::string{ name });
+    if (entry == byName.end())
+    {
+        return std::nullopt;
+    }
+
+    return entry->second;
 }
 
 bool CanUseSpell(CBattleEntity* PCaster, SpellID SpellID)

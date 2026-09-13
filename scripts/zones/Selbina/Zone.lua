@@ -9,6 +9,7 @@ local zoneObject = {}
 zoneObject.onInitialize = function(zone)
     xi.server.setExplorerMoogles(ID.npc.EXPLORER_MOOGLE)
     InitializeFishingContestSystem()
+    zone:registerCuboidTriggerArea(485, -2.9, -6.6, -77.7, 19.6, 0.1, -59.5) -- Mhaura boat boarding area
 end
 
 zoneObject.onGameHour = function(zone)
@@ -31,11 +32,11 @@ zoneObject.onZoneIn = function(player, prevZone)
         player:getZPos() == 0
     then
         if
-            player:hasKeyItem(xi.ki.FERRY_TICKET) and
+            player:hasKeyItem(xi.keyItem.FERRY_TICKET) and
             (prevZone == xi.zone.SHIP_BOUND_FOR_SELBINA or
             prevZone == xi.zone.SHIP_BOUND_FOR_SELBINA_PIRATES)
         then
-            cs = { 202, -1, bit.bor(xi.cutsceneFlag.UNKNOWN_1, xi.cutsceneFlag.NO_PCS) }
+            cs = { 202, -1, bit.bor(xi.cutsceneFlag.RESET_CAMERA, xi.cutsceneFlag.NO_PCS) }
             player:setPos(32.500, -2.500, -45.500, 192)
         else
             player:setPos(17.981, -16.806, 99.83, 64)
@@ -49,19 +50,18 @@ zoneObject.onConquestUpdate = function(zone, updatetype, influence, owner, ranki
     xi.conquest.onConquestUpdate(zone, updatetype, influence, owner, ranking, isConquestAlliance)
 end
 
-zoneObject.onTransportEvent = function(player, prevZoneId, transportId)
-    -- TODO don't double fire transport events (a ship "arrives" from normal and pirates zones at the same time and triggers a transport event)
+zoneObject.onTransportEvent = function(player, prevZoneId, transportName)
     if player:isInEvent() then
         return
     end
 
-    if player:hasKeyItem(xi.ki.FERRY_TICKET) then
+    if player:hasKeyItem(xi.keyItem.FERRY_TICKET) then
         player:startEvent(200, {
             isHidden = true,
             flags    = bit.bor(
-                xi.cutsceneFlag.UNKNOWN_1,
+                xi.cutsceneFlag.RESET_CAMERA,
                 xi.cutsceneFlag.NO_PCS,
-                xi.cutsceneFlag.UNKNOWN_7
+                xi.cutsceneFlag.NO_IDLE_WAIT
             ),
         })
     else

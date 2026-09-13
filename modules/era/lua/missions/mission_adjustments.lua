@@ -3,12 +3,10 @@
 -----------------------------------
 require('modules/module_utils')
 -----------------------------------
-local moduleName = 'era_mission_adjustments'
-local m = Module:new(moduleName)
+local m = Module:new('era_mission_adjustments')
 
--- Keep sections in the previous module init order.
-if not xi.module.isContentEnabled('ROV') then
-    m:addOverride('xi.server.onServerStart', function()
+m:addOverrideByEra('xi.server.onServerStart', {
+    [xi.expansion.ROV] = function()
         super()
 
         -- Rhapsodies of Vana'diel Era
@@ -132,11 +130,9 @@ if not xi.module.isContentEnabled('ROV') then
                     mission:getVar(player, 'Timer') == 0 -- Module change: Check JST midnight timer
             end
         end)
-    end)
-end
+    end,
 
-if not xi.module.isContentEnabled('SOA') then
-    m:addOverride('xi.server.onServerStart', function()
+    [xi.expansion.SOA] = function()
         super()
 
         -- Seekers of Adoulin Era
@@ -178,7 +174,7 @@ if not xi.module.isContentEnabled('SOA') then
 
             chateau.onEventFinish[564] = function(player, csid, option, npc)
                 if option == 1 then
-                    player:delKeyItem(xi.ki.RAILLEFALS_LETTER)
+                    player:delKeyItem(xi.keyItem.RAILLEFALS_LETTER)
                     if mission:complete(player) then
                         player:setVar('Mission[4][5]Timer', 1, JstMidnight()) -- Module change: Start JST midnight timer
                     end
@@ -206,7 +202,7 @@ if not xi.module.isContentEnabled('SOA') then
 
             whitegate.onEventFinish[3028] = function(player, csid, option, npc)
                 if mission:complete(player) then
-                    player:delKeyItem(xi.ki.RAILLEFALS_NOTE)
+                    player:delKeyItem(xi.keyItem.RAILLEFALS_NOTE)
                     player:setLocalVar('Mission[4][7]mustZone', 1)
                     player:setCharVar('Mission[4][7]Timer', 1, JstMidnight()) -- Module change: Start JST midnight timer
                 end
@@ -286,17 +282,9 @@ if not xi.module.isContentEnabled('SOA') then
             chateau.onEventFinish[102] = function(player, csid, option, npc)
                 if mission:complete(player) then
                     mission:setVar(player, 'Progress', JstMidnight())
-                    player:delKeyItem(xi.ki.DROPS_OF_AMNIO)
+                    player:delKeyItem(xi.keyItem.DROPS_OF_AMNIO)
                 end
             end
         end)
-    end)
-end
-
--- Return a real module only when a content gate registered overrides.
--- Otherwise return a data-only table to avoid a "No overrides found" loader warning.
-if #m.overrides > 0 then
-    return m
-end
-
-return { name = moduleName }
+    end,
+})

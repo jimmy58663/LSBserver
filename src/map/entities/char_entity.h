@@ -47,6 +47,7 @@
 
 #include "persist_batch.h"
 
+#include "ai/states/death_state.h"
 #include "battle_entity.h"
 #include "linkshell.h"
 #include "maze.h"
@@ -64,6 +65,7 @@
 
 class CItemWeapon;
 class CTrustEntity;
+class PlayerTradeTransaction;
 
 struct jobs_t
 {
@@ -234,6 +236,31 @@ enum CHAR_SUBSTATE
     SUBSTATE_NONE = 0,
     SUBSTATE_IN_CS,
     SUBSTATE_LAST,
+};
+
+enum class PartyKind : uint8_t;
+
+struct PendingInvite
+{
+    EntityId  entity{};
+    PartyKind kind{};
+
+    void clean()
+    {
+        *this = {};
+    }
+};
+
+struct PendingTrade
+{
+    EntityId          entity{};
+    timer::time_point invitedAt{};
+    bool              initiator{};
+
+    void clean()
+    {
+        *this = {};
+    }
 };
 
 enum class WarpRequest : uint8
@@ -462,6 +489,7 @@ public:
 
     WarpRequest requestedWarp       = WarpRequest::None; // see WarpRequest. This will be processed after the player's tick to warp.
     bool        requestedZoneChange = false;             // used in CLueBaseEntity::setPos(). This will be processed after the player's tick to change zones.
+    bool        arrivedByZoning     = false;             // set from char_stats.zoning by LoadChar, read by the 0x00A handler once the char is in its zone.
 
     uint8 GetGender();
 
@@ -532,21 +560,20 @@ public:
         return nullptr;
     }
 
-    // Only one transaction of each type may be active at a time. Aborts
-    // on null input or duplicate type.
+    // Only one transaction of each type may be active at a time. Null on a refused start or a duplicate.
     template <typename T>
     auto addTransaction(std::unique_ptr<T> transaction) -> T*
     {
         if (!transaction)
         {
             ShowErrorFmt("CCharEntity::addTransaction: null transaction of type {}", typeid(T).name());
-            std::abort();
+            return nullptr;
         }
 
         if (this->activeTransaction<T>())
         {
             ShowErrorFmt("CCharEntity::addTransaction: a transaction of type {} is already active", typeid(T).name());
-            std::abort();
+            return nullptr;
         }
 
         this->transactions_.push_back(std::move(transaction));
@@ -572,6 +599,12 @@ public:
         transactions_.clear();
     }
 
+    // The transaction is owned by the initiator
+    auto activePlayerTradeTransaction() const -> PlayerTradeTransaction*;
+
+    // Only valid when both sides' TradePending agree
+    auto tradePartner() const -> CCharEntity*;
+
     // TODO: All member instances of EntityID_t should be Maybe<EntityID_t> to allow for them not to be set,
     //     : instead of checking for entityId.id != 0, etc.
     // TODO: We don't want to replace this with just an ID, because in the future EntityID_t will be able to
@@ -587,11 +620,10 @@ public:
 
     void SetName(const std::string& name); // set the name of character, limited to 15 characters
 
-    timer::time_point lastTradeInvite{};
-    EntityId          TradePending{};    // Character ID offering trade
-    EntityId          InvitePending{};   // Character ID sending party invite
-    EntityId          BazaarID{};        // Pointer to the bazaar we are browsing.
-    BazaarList_t      BazaarCustomers{}; // Array holding the IDs of the current customers
+    PendingTrade  TradePending{};    // Set on both sides by a trade request
+    PendingInvite InvitePending{};   // Set on the invitee by a party invite
+    EntityId      BazaarID{};        // Pointer to the bazaar we are browsing.
+    BazaarList_t  BazaarCustomers{}; // Array holding the IDs of the current customers
 
     std::unique_ptr<monstrosity::MonstrosityData_t> m_PMonstrosity;
 
@@ -703,8 +735,11 @@ public:
     bool IsMobOwner(CBattleEntity* PTarget);
 
     void Die() override;
-    void Die(timer::duration _duration);
+    void Die(timer::duration _duration, DeathParams params = {});
     void Raise();
+
+    auto nextDeath() const -> const Maybe<DeathParams>&;
+    void setNextDeath(Maybe<DeathParams> params);
 
     static constexpr timer::duration death_duration         = 60min;
     static constexpr timer::duration death_update_frequency = 16s;
@@ -776,6 +811,8 @@ protected:
 
 private:
     auto applyTargetRestrictions(CBaseEntity* PResolved, uint16 validTargetFlags, std::unique_ptr<CBasicPacket>& errMsg) -> CBattleEntity*;
+
+    Maybe<DeathParams> nextDeath_;
 
     CCraftState                               craftState_{};
     std::vector<std::unique_ptr<Transaction>> transactions_;

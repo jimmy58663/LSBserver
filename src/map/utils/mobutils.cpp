@@ -1,4 +1,4 @@
-﻿/*
+/*
 ===========================================================================
 
   Copyright (c) 2010-2015 Darkstar Dev Teams
@@ -27,7 +27,6 @@
 #include "ai/ai_container.h"
 #include "battleutils.h"
 #include "data/enums/mob_mod.h"
-#include "data/loader.h"
 #include "grades.h"
 #include "instance.h"
 #include "items/item_weapon.h"
@@ -37,18 +36,20 @@
 #include "packets/s2c/0x028_battle2.h"
 #include "status_effect_container.h"
 #include "trait.h"
+#include "utils/dataset_loader.h"
 #include "zone_entities.h"
 #include "zoneutils.h"
 
 namespace mobutils
 {
 
-ModsMap_t mobSpeciesModsList;
 ModsMap_t mobPoolModsList;
 ModsMap_t mobSpawnModsList;
 
 namespace
 {
+
+using EcosystemsDataset = xi::data::datasets::ecosystems::Dataset;
 
 HashMap<uint16, SpeciesInfo> speciesData;
 
@@ -58,7 +59,7 @@ void LoadSpeciesData()
 {
     speciesData.clear();
 
-    for (const auto& [ecosystemId, ecosystem] : LoadEcosystem())
+    for (const auto& [ecosystemId, ecosystem] : xi::data::loadDataset<EcosystemsDataset>())
     {
         xi::data::MobAttributesData ecosystemAttributes{};
         xi::data::applyOverrides(ecosystemAttributes, ecosystem.MobAttributes);
@@ -76,7 +77,7 @@ void LoadSpeciesData()
                 const auto id = static_cast<uint16>(speciesId);
                 if (!speciesData.try_emplace(id, info).second)
                 {
-                    throw std::runtime_error(fmt::format("data/ecosystem.yaml: duplicate species id {}", id));
+                    throw std::runtime_error(fmt::format("data/ecosystems.yaml: duplicate species id {}", id));
                 }
             }
         }
@@ -85,15 +86,21 @@ void LoadSpeciesData()
 
 void ApplySpecies(CMobEntity* PMob)
 {
-    const auto& species    = GetSpeciesData(PMob->m_Species);
-    const auto& attributes = species.MobAttributes;
+    ApplySpecies(PMob, GetSpeciesData(PMob->m_Species).MobAttributes);
+}
+
+// The attributes arrive already merged, so a caller with more layers than the species applies the whole chain.
+// This writes every field it covers, so a caller reading the same fields from SQL has to assign after it, not before.
+void ApplySpecies(CMobEntity* PMob, const xi::data::MobAttributesData& attributes)
+{
+    const auto& species = GetSpeciesData(PMob->m_Species);
 
     PMob->m_EcoSystem = species.Ecosystem;
     PMob->m_Family    = static_cast<uint16>(species.Family);
     PMob->m_Element   = static_cast<uint8>(attributes.Element);
 
     PMob->baseSpeed      = attributes.Speed;
-    PMob->animationSpeed = attributes.Speed;
+    PMob->animationSpeed = attributes.AnimationSpeed.value_or(attributes.Speed);
     PMob->UpdateSpeed();
 
     ApplyStatRanks(*PMob, attributes.Stats);
@@ -107,6 +114,35 @@ void ApplySpecies(CMobEntity* PMob)
                          (PMob->m_Type & xi::MobType::Notorious) != xi::MobType::Normal;
 
     PMob->setMobMod(xi::MobMod::Charmable, attributes.Charmable && !special ? 1 : 0);
+
+    for (const auto& [id, value] : attributes.Resists)
+    {
+        PMob->setModifier(id, value);
+    }
+
+    if (attributes.Behavior)
+    {
+        PMob->m_Behavior = *attributes.Behavior;
+    }
+
+    if (attributes.Immune)
+    {
+        PMob->m_Immunity = *attributes.Immune;
+    }
+
+    if (attributes.MainJob)
+    {
+        PMob->SetMJob(static_cast<uint8>(*attributes.MainJob));
+    }
+
+    if (attributes.SubJob)
+    {
+        PMob->SetSJob(static_cast<uint8>(*attributes.SubJob));
+    }
+
+    PMob->m_Aggro         = attributes.Aggressive;
+    PMob->m_Link          = static_cast<uint8>(attributes.Links);
+    PMob->m_TrueDetection = attributes.TrueDetection;
 }
 
 auto GetSpeciesData(const uint16 speciesId) -> const SpeciesInfo&
@@ -1135,27 +1171,22 @@ void SetupJob(CMobEntity* PMob)
             break;
         case xi::Job::PLD:
             PMob->defaultMobMod(xi::MobMod::MagicCool, 35);
-            PMob->defaultMobMod(xi::MobMod::MagicDelay, 7);
             break;
         case xi::Job::DRK:
             PMob->defaultMobMod(xi::MobMod::MagicCool, 35);
-            PMob->defaultMobMod(xi::MobMod::MagicDelay, 7);
             break;
         case xi::Job::WHM:
             PMob->defaultMobMod(xi::MobMod::MagicCool, 35);
-            PMob->defaultMobMod(xi::MobMod::MagicDelay, 10);
             break;
         case xi::Job::BRD:
             PMob->defaultMobMod(xi::MobMod::MagicCool, 35);
             PMob->defaultMobMod(xi::MobMod::GaChance, 25);
             PMob->defaultMobMod(xi::MobMod::BuffChance, 60);
-            PMob->defaultMobMod(xi::MobMod::MagicDelay, 10);
             break;
         case xi::Job::RDM:
             PMob->defaultMobMod(xi::MobMod::MagicCool, 35);
             PMob->defaultMobMod(xi::MobMod::GaChance, 15);
             PMob->defaultMobMod(xi::MobMod::BuffChance, 40);
-            PMob->defaultMobMod(xi::MobMod::MagicDelay, 10);
             break;
         case xi::Job::SMN:
             PMob->defaultMobMod(xi::MobMod::MagicCool, 70);
@@ -1165,7 +1196,6 @@ void SetupJob(CMobEntity* PMob)
             PMob->defaultMobMod(xi::MobMod::SpecialCool, 9);
             PMob->defaultMobMod(xi::MobMod::MagicCool, 35);
             PMob->defaultMobMod(xi::MobMod::BuffChance, 20);
-            PMob->defaultMobMod(xi::MobMod::MagicDelay, 7);
             break;
         case xi::Job::BLU:
             PMob->defaultMobMod(xi::MobMod::MagicCool, 35);
@@ -1279,23 +1309,11 @@ void SetupJob(CMobEntity* PMob)
 
 void SetupRoaming(CMobEntity* PMob)
 {
-    uint16 distance = 10;
-    uint16 turns    = 1;
-    uint16 cool     = 20;
-    uint16 rate     = 15;
-
-    if (PMob->m_EcoSystem == xi::Ecosystem::Beastmen)
-    {
-        distance = 20;
-        turns    = 5;
-        cool     = 45;
-    }
-
-    // default mob roaming mods
-    PMob->defaultMobMod(xi::MobMod::RoamDistance, distance);
-    PMob->defaultMobMod(xi::MobMod::RoamTurns, turns);
-    PMob->defaultMobMod(xi::MobMod::RoamCool, cool);
-    PMob->defaultMobMod(xi::MobMod::RoamRate, rate);
+    // default mob roaming mods; 6 is the median retail leg
+    PMob->defaultMobMod(xi::MobMod::RoamDistance, 6);
+    PMob->defaultMobMod(xi::MobMod::RoamTurns, 1);
+    PMob->defaultMobMod(xi::MobMod::RoamCool, 20);
+    PMob->defaultMobMod(xi::MobMod::RoamRate, 15);
 
     if ((PMob->m_roamFlags & xi::RoamFlag::Ambush) != xi::RoamFlag::None)
     {
@@ -1490,8 +1508,11 @@ void GetAvailableSpells(CMobEntity* PMob)
 
 void SetSpellList(CMobEntity* PMob, uint16 spellList)
 {
-    PMob->m_SpellListContainer = mobSpellList::GetMobSpellList(spellList);
-    RecalculateSpellContainer(PMob);
+    if (auto* PSpellList = mobSpellList::GetMobSpellList(spellList))
+    {
+        PMob->m_SpellListContainer = PSpellList;
+        RecalculateSpellContainer(PMob);
+    }
 }
 
 void InitializeMob(CMobEntity* PMob)
@@ -1515,39 +1536,20 @@ void InitializeMob(CMobEntity* PMob)
 }
 
 /*
-Loads up mob mods from mob_pool_mods and mob_species_mods table. This will allow you to change
+Loads up mob mods from the mob_pool_mods table. This will allow you to change
 a mobs regen rate, magic defense, triple attack rate from a table instead of hardcoding it.
 
 Usage:
 
-    Evil weapons have a magic defense boost. So pop that into mob_species_mods table.
     Goblin Diggers have a vermin killer trait, so find its poolid and put it in mod_pool_mods table.
+
+Species-wide mods live in data/ecosystems.yaml instead.
 */
 void LoadSqlModifiers()
 {
-    // load family mods
-    auto rset = db::preparedStmt("SELECT speciesid, modid, value, is_mob_mod "
-                                 "FROM mob_species_mods");
-    FOR_DB_MULTIPLE_RESULTS(rset)
-    {
-        ModsList_t* speciesMods = GetMobSpeciesMods(rset->get<uint16>("speciesid"), true);
-
-        auto* mod = new CModifier(rset->get<xi::Mod>("modid"));
-        mod->setModAmount(rset->get<int16>("value"));
-
-        if (rset->get<bool>("is_mob_mod"))
-        {
-            speciesMods->mobMods.emplace_back(mod);
-        }
-        else
-        {
-            speciesMods->mods.emplace_back(mod);
-        }
-    }
-
     // load pool mods
-    rset = db::preparedStmt("SELECT poolid, modid, value, is_mob_mod "
-                            "FROM mob_pool_mods");
+    auto rset = db::preparedStmt("SELECT poolid, modid, value, is_mob_mod "
+                                 "FROM mob_pool_mods");
     FOR_DB_MULTIPLE_RESULTS(rset)
     {
         const auto  pool     = rset->get<uint16>("poolid");
@@ -1590,25 +1592,6 @@ void Cleanup()
     }
     mobSpawnModsList.clear();
 
-    for (auto mobSpeciesMods : mobSpeciesModsList)
-    {
-        if (mobSpeciesMods.second)
-        {
-            for (auto mobMods : mobSpeciesMods.second->mobMods)
-            {
-                destroy(mobMods);
-            }
-
-            for (auto mods : mobSpeciesMods.second->mods)
-            {
-                destroy(mods);
-            }
-
-            destroy(mobSpeciesMods.second);
-        }
-    }
-    mobSpeciesModsList.clear();
-
     for (auto mobPoolMods : mobPoolModsList)
     {
         if (mobPoolMods.second)
@@ -1626,27 +1609,6 @@ void Cleanup()
         }
     }
     mobPoolModsList.clear();
-}
-
-ModsList_t* GetMobSpeciesMods(uint16 speciesId, bool create)
-{
-    if (mobSpeciesModsList[speciesId])
-    {
-        return mobSpeciesModsList[speciesId];
-    }
-
-    if (create)
-    {
-        // create new one
-        ModsList_t* mods = new ModsList_t;
-        mods->id         = speciesId;
-
-        mobSpeciesModsList[speciesId] = mods;
-
-        return mods;
-    }
-
-    return nullptr;
 }
 
 ModsList_t* GetMobPoolMods(uint32 poolId, bool create)
@@ -1694,20 +1656,16 @@ ModsList_t* GetMobSpawnMods(uint32 mobId, bool create)
 void AddSqlModifiers(CMobEntity* PMob)
 {
     // find my species mods
-    ModsList_t* PSpeciesMods = GetMobSpeciesMods(PMob->m_Species);
+    const auto& speciesAttributes = GetSpeciesData(PMob->m_Species).MobAttributes;
 
-    if (PSpeciesMods != nullptr)
+    for (const auto& [id, value] : speciesAttributes.Mods)
     {
-        // add them
-        for (auto& mod : PSpeciesMods->mods)
-        {
-            PMob->addModifier(mod->getModID(), mod->getModAmount());
-        }
-        // TODO: don't store mobmods in a CModifier
-        for (auto& mobMod : PSpeciesMods->mobMods)
-        {
-            PMob->setMobMod(static_cast<xi::MobMod>(mobMod->getModID()), mobMod->getModAmount());
-        }
+        PMob->addModifier(id, value);
+    }
+
+    for (const auto& [id, value] : speciesAttributes.MobMods)
+    {
+        PMob->setMobMod(id, value);
     }
 
     // find my pools mods
@@ -1802,7 +1760,6 @@ auto InstantiateAlly(const uint32 groupid, const xi::ZoneId zoneID, CInstance* i
         static_cast<CItemWeapon*>(PMob->m_Weapons[SLOT_MAIN])->setBaseDelay(rset->get<uint16>("cmbDelay"));
 
         PMob->m_Behavior = rset->get<xi::Behavior>("behavior");
-        PMob->m_Link     = rset->get<uint8>("links");
         PMob->m_Type     = rset->get<xi::MobType>("mobType");
         PMob->m_Immunity = rset->get<xi::Immunity>("immunity");
 
@@ -1863,6 +1820,7 @@ auto InstantiateAlly(const uint32 groupid, const xi::ZoneId zoneID, CInstance* i
         PMob->modelSize       = rset->getOrDefault<uint8>("modelSize", 0);
         PMob->m_Aggro         = rset->get<bool>("aggro");
         PMob->m_MobSkillList  = rset->get<uint16>("skill_list_id");
+        PMob->m_Link          = rset->get<uint8>("links");
         PMob->m_TrueDetection = rset->get<bool>("true_detection");
 
         if (instance)
@@ -1954,7 +1912,6 @@ auto InstantiateDynamicMob(const uint32 groupid, const xi::ZoneId groupZoneId, c
         static_cast<CItemWeapon*>(PMob->m_Weapons[SLOT_MAIN])->setBaseDelay(rset->get<uint16>("cmbDelay"));
 
         PMob->m_Behavior = rset->get<xi::Behavior>("behavior");
-        PMob->m_Link     = rset->get<uint8>("links");
         PMob->m_Type     = rset->get<xi::MobType>("mobType");
         PMob->m_Immunity = rset->get<xi::Immunity>("immunity");
 
@@ -2000,6 +1957,7 @@ auto InstantiateDynamicMob(const uint32 groupid, const xi::ZoneId groupZoneId, c
         PMob->modelSize       = rset->getOrDefault<uint8>("modelSize", 0);
         PMob->m_Aggro         = rset->get<bool>("aggro");
         PMob->m_MobSkillList  = rset->get<uint16>("skill_list_id");
+        PMob->m_Link          = rset->get<uint8>("links");
         PMob->m_TrueDetection = rset->get<bool>("true_detection");
 
         mobutils::InitializeMob(PMob);

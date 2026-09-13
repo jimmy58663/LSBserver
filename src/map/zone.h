@@ -32,6 +32,8 @@
 #include <common/types/flat_hash_map.h>
 #include <common/types/fn.h>
 
+#include "data/datasets/zones/settings/dataset.h"
+
 #include "battlefield_handler.h"
 #include "campaign_handler.h"
 #include "map_config.h"
@@ -47,8 +49,8 @@
 
 #include <common/types/hash_map.h>
 #include <list>
-#include <map>
 #include <memory>
+#include <optional>
 
 //
 // Forward Declarations
@@ -60,6 +62,7 @@
 #include "data/enums/zone_type.h"
 class XiMesh;
 class NavMesh;
+class RoamRegion;
 class SpawnHandler;
 
 #define MAX_ZONEID 300
@@ -226,7 +229,7 @@ using QueryByNameResult_t = std::vector<CBaseEntity*>;
 class CZone
 {
 public:
-    CZone(Scheduler& scheduler, MapConfig config, xi::ZoneId ZoneID, REGION_TYPE RegionID, CONTINENT_TYPE ContinentID, uint8 levelRestriction);
+    CZone(Scheduler& scheduler, MapConfig config, xi::ZoneId ZoneID, REGION_TYPE RegionID, CONTINENT_TYPE ContinentID, uint8 levelRestriction, const std::optional<xi::data::ZoneSettings>& settings);
     virtual ~CZone();
 
     DISALLOW_COPY_AND_MOVE(CZone);
@@ -298,7 +301,8 @@ public:
     // (teleport, setPos, a movement step, etc.).
     virtual void onEntityMoved(CBaseEntity* PEntity);
 
-    virtual void TransportDepart(uint16 boundary, xi::ZoneId prevZoneId, uint16 transportId); // Collect passengers if ship/boat is departing
+    virtual void TransportDepart(uint16 boundary, xi::ZoneId prevZoneId, std::string_view transport); // Collect passengers if ship/boat is departing
+    virtual void DisembarkAll();                                                                      // Put whoever is still riding through this zone ashore
 
     virtual void updateCharLevelRestriction(CCharEntity* PChar); // Removes the character's level restriction. If the zone has a level restriction, it is applied after it is removed.
 
@@ -337,6 +341,9 @@ public:
     auto navMesh() const -> NavMesh*;
     auto xiMesh() const -> XiMesh*;
 
+    auto roamRegion(const std::string& name) const -> const RoamRegion*;
+    auto addRoamRegion(std::string name, RoamRegion region) -> const RoamRegion*;
+
     auto LoadNavMesh() -> Task<void>;
     void RebuildNavMesh(const NavMeshConfig& config = {});
 
@@ -358,12 +365,14 @@ protected:
     HashMap<std::string, uint32> localVars_;
 
 private:
-    void LoadZoneSettings();
-    void LoadZoneLines();
+    void LoadZoneSettings(const std::optional<xi::data::ZoneSettings>& settings);
+    void LoadZoneLines(const std::optional<xi::data::ZoneSettings>& settings);
     void LoadZoneWeather();
 
     std::unique_ptr<NavMesh> navMesh_;
     std::unique_ptr<XiMesh>  xiMesh_;
+
+    FlatHashMap<std::string, std::unique_ptr<RoamRegion>> roamRegions_;
 
     xi::ZoneId     m_zoneID;
     xi::ZoneType   m_zoneType;

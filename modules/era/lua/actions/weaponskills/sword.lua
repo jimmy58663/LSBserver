@@ -4,13 +4,7 @@
 require('modules/module_utils')
 -----------------------------------
 
-local moduleName = 'toau_sword'
-
-if xi.module.isContentEnabled('WOTG') then
-    return { name = moduleName }
-end
-
-local m = Module:new(moduleName)
+local m = Module:new('toau_sword', xi.pre(xi.expansion.WOTG))
 
 -----------------------------------
 -- Fast Blade
@@ -263,10 +257,10 @@ end)
 -- Atonement
 -----------------------------------
 m:addOverride('xi.actions.weaponskills.atonement.onUseWeaponSkill', function(player, target, wsID, tp, primary, action, taChar)
-    local params      = {}
-    params.numHits    = 2
-    params.ftpMod     = { 1.00, 1.50, 2.00 } -- 1x Enmity @ 1000 TP, 1.5x Enmity @ 2000 TP, 2x Enmity @ 3000 TP
-    params.enmityMult = utils.clamp(xi.weaponskills.fTP(tp, params.ftpMod), 1, 2) -- Enmity multiplier based on fTP, clamped between 1 and 2.
+    local params   = {}
+    params.numHits = 2
+    params.ftpMod  = { 1.00, 1.50, 2.00 }
+
     -- 1000 TP: 9% CE + 11% VE, 2000 TP: 11% CE + 14% VE, 3000 TP: 20% CE + 25% VE
     local cePercent = xi.weaponskills.fTP(tp, { 0.09, 0.11, 0.20 })
     local vePercent = xi.weaponskills.fTP(tp, { 0.11, 0.14, 0.25 })
@@ -398,5 +392,3 @@ m:addOverride('xi.actions.weaponskills.expiacion.onUseWeaponSkill', function(pla
     local damage, criticalHit, tpHits, extraHits = xi.weaponskills.doPhysicalWeaponskill(player, target, wsID, params, tp, action, primary, taChar)
     return tpHits, extraHits, criticalHit, damage
 end)
-
-return m

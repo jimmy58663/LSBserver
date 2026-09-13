@@ -49,6 +49,7 @@ public:
     virtual auto MobSkill(EntityId target, uint16 wsid, Maybe<timer::duration> castTimeOverride) -> bool;
     auto         Ability(EntityId target, uint16 abilityid) -> bool override;
     auto         MobSkill(int listId = 0) -> bool;
+    auto         TryMobSkill(uint16 skillId, CBattleEntity* PTarget) -> bool;
     auto         TryCastSpell() -> bool;
     auto         TrySpecialSkill() -> bool;
     auto         CanFollowTarget(CBattleEntity*) const -> bool;
@@ -78,6 +79,7 @@ protected:
     virtual void HandleEnmity();
     virtual auto DoRoamTick(timer::time_point tick) -> Task<void>;
     void         Wait(timer::duration duration);
+    auto         NextIdleEventTime() const -> timer::time_point;
     void         FollowRoamPath();
     auto         ShouldCloseToTarget(float currentDistance) -> bool;
 
@@ -108,6 +110,7 @@ private:
     EntityId followTarget_{};
 
     timer::time_point m_LastActionTime;
+    position_t        m_IdleCheckedPosition{};
     timer::time_point m_nextMagicTime;
     timer::time_point m_LastMobSkillTime;
     timer::time_point m_LastSpecialTime;

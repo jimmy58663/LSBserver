@@ -13,9 +13,10 @@ describe('Blue Magic monster correlation', function()
     -- ecosystemMultiplier() hands back 1.0 for a neutral matchup, so it has to be
     -- turned into a bonus before it's added to anything. Added raw, every spell
     -- picks up a flat +1.0.
-    local neutralDamage      = 11
-    local favourableDamage   = 14 -- 1.00 -> 1.25
-    local unfavourableDamage = 8  -- 1.00 -> 0.75
+    -- Foot Kick from a naked Hume BLU99 (STR 72 with the captured base stat formula) against a level 28 Clipper
+    local neutralDamage      = 30
+    local favourableDamage   = 37 -- 1.00 -> 1.25
+    local unfavourableDamage = 22 -- 1.00 -> 0.75
 
     before_each(function()
         xi.test.world:setSeed(1)
@@ -31,7 +32,10 @@ describe('Blue Magic monster correlation', function()
         player:addSpell(xi.magic.spell.FOOT_KICK)
         player.actions:setBlueSpells({ xi.magic.spell.FOOT_KICK })
 
+        -- The Clipper spawns at level 28 or 29, so its VIT, its DEF, and the damage below all
+        -- depend on the shared RNG stream. Pin the level.
         mob = player.entities:moveTo(17293357)
+        mob:setLevelRange(28, 28)
         mob:respawn()
         mob.assert:isAlive()
     end)

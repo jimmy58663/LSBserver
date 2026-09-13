@@ -62,7 +62,8 @@ constexpr size_t kMaxNavPolys = 2048;
 constexpr size_t kPathPolyLimit = 512;
 
 // From docs: The maximum number of polygons the visited array can hold.
-constexpr size_t kMaxQueryPolys = 16;
+// moveAlongSurface stops when this fills and still reports success
+constexpr size_t kMaxQueryPolys = 256;
 
 // Detour search extents, used to snap a query point onto the nearest poly.
 constexpr float smallPolyPickExt[3] = { 0.5f, 1.0f, 0.5f };
@@ -292,7 +293,7 @@ auto DetourNavMesh::save(const std::string& path) const -> bool
 
 auto DetourNavMesh::findPath(const position_t& start, const position_t& end) -> Maybe<PathResult>
 {
-    TracyZoneScoped;
+    TracyZoneScopedS(12);
 
     if (std::isnan(start.x) || std::isnan(start.y) || std::isnan(start.z) ||
         std::isnan(end.x) || std::isnan(end.y) || std::isnan(end.z))
@@ -409,7 +410,7 @@ auto DetourNavMesh::findPath(const position_t& start, const position_t& end) -> 
 
 auto DetourNavMesh::findRandomPosition(const position_t& start, float maxRadius) const -> Maybe<position_t>
 {
-    TracyZoneScoped;
+    TracyZoneScopedS(12);
 
     DebugNavmesh("DetourNavMesh::findRandomPosition (%f, %f, %f) (%u)", start.x, start.y, start.z, zoneID_);
 
@@ -451,7 +452,7 @@ auto DetourNavMesh::validPosition(const position_t& position) const -> bool
 
 auto DetourNavMesh::findClosestValidPoint(const position_t& position) const -> Maybe<position_t>
 {
-    TracyZoneScoped;
+    TracyZoneScopedS(12);
 
     DebugNavmesh("DetourNavMesh::findClosestValidPoint (%f, %f, %f) (%u)", position.x, position.y, position.z, zoneID_);
 
@@ -523,6 +524,12 @@ auto DetourNavMesh::moveAlongSurface(const position_t& start, const position_t& 
     if (dtStatusFailed(status))
     {
         return false;
+    }
+
+    // detour hands back the start height; take the height of the poly the walk ended on
+    if (visitedCount > 0)
+    {
+        navMeshQuery_.getPolyHeight(visited[visitedCount - 1], out, &out[1]);
     }
 
     result = fromDetour(out);

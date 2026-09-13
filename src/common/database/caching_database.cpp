@@ -135,6 +135,14 @@ auto db::CachingDatabase::runWithRetry(const std::string& rawQuery, const Fn<std
                 ShowErrorFmt("{}", e.what());
                 return nullptr;
             }
+
+            // reconnect starts in autocommit, retrying would commit this statement on its own
+            if (state.inTransaction)
+            {
+                ShowErrorFmt("Connection lost mid-transaction, not retrying: {}", rawQuery);
+                ShowErrorFmt("{}", e.what());
+                return nullptr;
+            }
         }
     }
 
@@ -145,7 +153,7 @@ auto db::CachingDatabase::runWithRetry(const std::string& rawQuery, const Fn<std
 
 auto db::CachingDatabase::execute(const std::string& rawQuery, const std::vector<BoundValue>& params) -> std::unique_ptr<ResultSet>
 {
-    TracyZoneScoped;
+    TracyZoneScopedS(16);
     TracyZoneString(rawQuery);
 
     const auto queryType = detail::validateQueryLeadingKeyword(rawQuery);
@@ -191,6 +199,11 @@ auto db::CachingDatabase::executeBulk(const std::string& rawQuery, const std::ve
     };
 
     return runWithRetry(rawQuery, operation);
+}
+
+void db::CachingDatabase::setInTransaction(bool value)
+{
+    getState().inTransaction = value;
 }
 
 auto db::CachingDatabase::getSchema() -> std::string
