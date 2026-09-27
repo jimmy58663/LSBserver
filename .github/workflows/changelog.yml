@@ -1,9 +1,9 @@
 name: Publish Changelog
 
 on:
-  schedule:
+  #schedule:
     # At 12:00 on day-of-month 1 and 15.
-    - cron:  '0 12 1,15 * *'
+    #- cron:  '0 12 1,15 * *'
   workflow_dispatch:
 
 jobs:
