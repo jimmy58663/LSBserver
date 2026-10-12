@@ -21,12 +21,14 @@ zones[xi.zone.ATTOHWA_CHASM] =
         MEMBERS_LEVELS_ARE_RESTRICTED = 7028, -- Your party is unable to participate because certain members' levels are restricted.
         CONQUEST_BASE                 = 7073, -- Tallying conquest results...
         MINING_IS_POSSIBLE_HERE       = 7232, -- Mining is possible here if you have <item>.
+        FOUND_ITEM_WITH_EASE          = 7329, -- It appears your chocobo found this item with ease.
         MIMEO_STONE_PICKUP            = 7340, -- The <keyitem> is shining brilliantly.
         MIMEO_JEWEL_OFFSET            = 7341, -- The light from the <keyitem> is beginning to fade.
         MIMEO_STONE_BRIGHTNESS_OFFSET = 7346, -- The <keyitem> is shining brilliantly.
         MUST_MOVE_CLOSER              = 7351, -- You must move a little closer to examine the area.
         GASPONIA_POISON               = 7353, -- The poison of the Gasponia has begun to spread through your body.
         OCCASIONAL_LUMPS              = 7368, -- Occasionally lumps arise in the ground here, then settle down again. It seems that there is something beneath the earth.
+        ANTLION_TRAP_SET              = 7369, -- You set the <item>. The acidic smell of antlion wafts through the air. Suddenly, a sharp clang rings through the air! You have caught something!
         HOMEPOINT_SET                 = 8255, -- Home point set!
         UNITY_WANTED_BATTLE_INTERACT  = 8313, -- Those who have accepted % must pay # Unity accolades to participate. The content for this Wanted battle is #. [Ready to begin?/You do not have the appropriate object set, so your rewards will be limited.]
     },

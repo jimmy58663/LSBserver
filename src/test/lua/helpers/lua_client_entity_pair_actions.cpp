@@ -30,6 +30,7 @@
 #include "lua/helpers/lua_client_entity_pair_packets.h"
 #include "lua/lua_client_entity_pair.h"
 #include "lua/lua_simulation.h"
+#include "lua/luautils.h"
 #include "map/ability.h"
 #include "map/ai/controllers/player_controller.h"
 #include "map/entities/char_entity.h"
@@ -58,12 +59,14 @@
 #include "map/packets/c2s/0x0ab_guild_buylist.h"
 #include "map/packets/c2s/0x0ac_guild_sell.h"
 #include "map/packets/c2s/0x0ad_guild_selllist.h"
+#include "map/packets/c2s/0x0c4_group_comlink_active.h"
 #include "map/packets/c2s/0x0e0_set_usermsg.h"
 #include "map/packets/c2s/0x0fa_myroom_layout.h"
 #include "map/packets/c2s/0x0fc_myroom_plant_add.h"
 #include "map/packets/c2s/0x0fd_myroom_plant_check.h"
 #include "map/packets/c2s/0x0fe_myroom_plant_crop.h"
 #include "map/packets/c2s/0x0ff_myroom_plant_stop.h"
+#include "map/packets/c2s/0x100_myroom_job.h"
 #include "map/packets/c2s/0x102_extended_job.h"
 #include "map/packets/c2s/0x105_bazaar_list.h"
 #include "map/packets/c2s/0x106_bazaar_buy.h"
@@ -200,6 +203,31 @@ void CLuaClientEntityPairActions::useAbility(CLuaBaseEntity* target, const ABILI
     actionPacket->ActIndex           = target->getTargID();
     actionPacket->ActionID           = GP_CLI_COMMAND_ACTION_ACTIONID::JobAbility;
     actionPacket->JobAbility.SkillId = abilityId;
+
+    parent_->packets().sendBasicPacket(*packet);
+}
+
+/************************************************************************
+ *  Function: useMonsterSkill()
+ *  Purpose : Emits packet to use a Monstrosity TP move on a target.
+ *  Example : player.actions:useMonsterSkill(mob, 343) -- Fireball
+ *  Notes   : Takes the client-facing DAT skill id, not a mob skill id.
+ ************************************************************************/
+
+void CLuaClientEntityPairActions::useMonsterSkill(CLuaBaseEntity* target, const uint16 datSkillId) const
+{
+    if (!target)
+    {
+        TestError("useMonsterSkill: Invalid target");
+        return;
+    }
+
+    const auto packet                  = parent_->packets().createPacket<GP_CLI_COMMAND_ACTION>();
+    auto*      actionPacket            = packet->as<GP_CLI_COMMAND_ACTION>();
+    actionPacket->UniqueNo             = target->getID();
+    actionPacket->ActIndex             = target->getTargID();
+    actionPacket->ActionID             = GP_CLI_COMMAND_ACTION_ACTIONID::MonsterSkill;
+    actionPacket->MonsterSkill.SkillId = datSkillId;
 
     parent_->packets().sendBasicPacket(*packet);
 }
@@ -594,6 +622,34 @@ void CLuaClientEntityPairActions::setSearchMessage(const std::string& message, s
 }
 
 /************************************************************************
+ *  Function: linkshellActive()
+ *  Purpose : Emits packet 0x0C4 to equip, unequip or create a linkshell item.
+ *  Example : player.actions:linkshellActive(invSlot, 1, true)
+ *  Notes   : name is only used when creating
+ ************************************************************************/
+
+void CLuaClientEntityPairActions::linkshellActive(const uint8 invSlot, const uint8 lsNum, const bool active, sol::optional<std::string> name) const
+{
+    const auto packet = parent_->packets().createPacket<GP_CLI_COMMAND_GROUP_COMLINK_ACTIVE>();
+    auto*      data   = packet->as<GP_CLI_COMMAND_GROUP_COMLINK_ACTIVE>();
+
+    data->a           = 15;
+    data->ItemIndex   = invSlot;
+    data->Category    = LOC_INVENTORY;
+    data->ActiveFlg   = active ? 1 : 0;
+    data->LinkshellId = lsNum;
+
+    if (name)
+    {
+        char encoded[LinkshellStringLength] = {};
+        EncodeStringLinkshell(*name, encoded);
+        std::memcpy(data->sComLinkName, encoded, sizeof(data->sComLinkName));
+    }
+
+    parent_->packets().sendBasicPacket(*packet);
+}
+
+/************************************************************************
  *  Function: bazaarPrice()
  *  Purpose : Prices an inventory slot for the player's bazaar the way the client does:
  *          : 0x10B to enter the price menu, 0x10A for the slot, 0x109 to leave the menu.
@@ -796,9 +852,9 @@ void CLuaClientEntityPairActions::engage(CLuaBaseEntity* mob) const
     PChar->loc.p.rotation = worldAngle(PChar->loc.p, PMob->loc.p);
     PMob->loc.p.rotation  = worldAngle(PMob->loc.p, PChar->loc.p);
 
-    // 3. Change last attack time so we can engage immediately
+    // 3. Clear the engage lockout so we can engage immediately
     auto* controller = static_cast<CPlayerController*>(parent_->testChar()->entity()->PAI->GetController());
-    controller->setLastAttackTime(timer::now() - 30s);
+    controller->setEngageLockedUntil(timer::now());
 
     // 4. Send packet to engage
     const auto packet       = parent_->packets().createPacket<GP_CLI_COMMAND_ACTION>();
@@ -967,6 +1023,23 @@ void CLuaClientEntityPairActions::equipSet(const sol::table& entries) const
     }
 
     p->Count = idx;
+
+    parent_->packets().sendBasicPacket(*packet);
+}
+
+/************************************************************************
+ *  Function: changeJob()
+ *  Purpose : Emits the 0x100 packet to change main and/or support job.
+ *  Example : player.actions:changeJob(xi.job.WHM)
+ *  Notes   : Requires a mog house or a zone with the mog menu.
+ ************************************************************************/
+
+void CLuaClientEntityPairActions::changeJob(const uint8 mainJob, sol::optional<uint8> subJob) const
+{
+    const auto packet  = parent_->packets().createPacket<GP_CLI_COMMAND_MYROOM_JOB>();
+    auto*      p       = packet->as<GP_CLI_COMMAND_MYROOM_JOB>();
+    p->MainJobIndex    = mainJob;
+    p->SupportJobIndex = subJob.value_or(0);
 
     parent_->packets().sendBasicPacket(*packet);
 }
@@ -1162,6 +1235,7 @@ void CLuaClientEntityPairActions::Register()
     SOL_REGISTER("setBlueSpells", CLuaClientEntityPairActions::setBlueSpells);
     SOL_REGISTER("useWeaponskill", CLuaClientEntityPairActions::useWeaponskill);
     SOL_REGISTER("useAbility", CLuaClientEntityPairActions::useAbility);
+    SOL_REGISTER("useMonsterSkill", CLuaClientEntityPairActions::useMonsterSkill);
     SOL_REGISTER("changeTarget", CLuaClientEntityPairActions::changeTarget);
     SOL_REGISTER("rangedAttack", CLuaClientEntityPairActions::rangedAttack);
     SOL_REGISTER("useItem", CLuaClientEntityPairActions::useItem);
@@ -1186,6 +1260,7 @@ void CLuaClientEntityPairActions::Register()
     SOL_REGISTER("bazaarPrice", CLuaClientEntityPairActions::bazaarPrice);
     SOL_REGISTER("bazaarOpen", CLuaClientEntityPairActions::bazaarOpen);
     SOL_REGISTER("setSearchMessage", CLuaClientEntityPairActions::setSearchMessage);
+    SOL_REGISTER("linkshellActive", CLuaClientEntityPairActions::linkshellActive);
     SOL_REGISTER("bazaarBuy", CLuaClientEntityPairActions::bazaarBuy);
     SOL_REGISTER("acceptRaise", CLuaClientEntityPairActions::acceptRaise);
     SOL_REGISTER("engage", CLuaClientEntityPairActions::engage);
@@ -1195,6 +1270,7 @@ void CLuaClientEntityPairActions::Register()
     SOL_REGISTER("dropItem", CLuaClientEntityPairActions::dropItem);
     SOL_REGISTER("setLockstyle", CLuaClientEntityPairActions::setLockstyle);
     SOL_REGISTER("equipSet", CLuaClientEntityPairActions::equipSet);
+    SOL_REGISTER("changeJob", CLuaClientEntityPairActions::changeJob);
     SOL_REGISTER("craft", CLuaClientEntityPairActions::craft);
     SOL_REGISTER("plantAdd", CLuaClientEntityPairActions::plantAdd);
     SOL_REGISTER("plantCheck", CLuaClientEntityPairActions::plantCheck);

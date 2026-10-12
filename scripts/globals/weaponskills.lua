@@ -362,6 +362,23 @@ xi.weaponskills.calculateRawWSDmg = function(attacker, target, wsID, tp, action,
         calcParams.hitRate = calcParams.origHitRate
     end
 
+    -- Have to calculate added bonus for SA/TA here since it is done outside of the fTP multiplier
+    if
+        calcParams.hitsLanded > 0 and
+        attacker:getMainJob() == xi.job.THF
+    then
+        -- Add DEX/AGI bonus to base damage of first hit if THF main and valid Sneak/Trick Attack
+        if calcParams.sneakApplicable then
+            local dexFactor = math.floor(attacker:getStat(xi.mod.DEX) * (1 + attacker:getMod(xi.mod.SNEAK_ATK_DEX) / 100))
+            hitdmg = math.floor(hitdmg + calcParams.pdif * dexFactor)
+        end
+
+        if calcParams.trickApplicable then
+            local agiFactor = math.floor(attacker:getStat(xi.mod.AGI) * (1 + attacker:getMod(xi.mod.TRICK_ATK_AGI) / 100))
+            hitdmg = math.floor(hitdmg + calcParams.pdif * agiFactor)
+        end
+    end
+
     if calcParams.melee then
         hitdmg = modifyMeleeHitDamage(attacker, target, calcParams.attackInfo, wsParams, hitdmg)
     end
@@ -384,20 +401,6 @@ xi.weaponskills.calculateRawWSDmg = function(attacker, target, wsID, tp, action,
     local numMainHandMultis = isRanged and 0 or getMultiAttacks(attacker, target, wsParams, true, false)
     local numOffhandMultis  = 0
     local numMultiProcs     = numMainHandMultis > 0 and 1 or 0
-
-    -- Have to calculate added bonus for SA/TA here since it is done outside of the fTP multiplier
-    if attacker:getMainJob() == xi.job.THF then
-        -- Add DEX/AGI bonus to base damage of first hit if THF main and valid Sneak/Trick Attack
-        if calcParams.sneakApplicable then
-            local dexFactor = math.floor(attacker:getStat(xi.mod.DEX) * (1 + attacker:getMod(xi.mod.SNEAK_ATK_DEX) / 100))
-            finaldmg = math.floor(finaldmg + calcParams.pdif * dexFactor)
-        end
-
-        if calcParams.trickApplicable then
-            local agiFactor = math.floor(attacker:getStat(xi.mod.AGI) * (1 + attacker:getMod(xi.mod.TRICK_ATK_AGI) / 100))
-            finaldmg = math.floor(finaldmg + calcParams.pdif * agiFactor)
-        end
-    end
 
     -- these are deliberately left outside of the "If main job is THF" if-statement
     if calcParams.sneakApplicable then
@@ -436,6 +439,11 @@ xi.weaponskills.calculateRawWSDmg = function(attacker, target, wsID, tp, action,
     -- First mainhand hit is already accounted for
     local mainhandHits     = wsParams.numHits - 1
     local mainhandHitsDone = 0
+
+    if not isRanged then
+        attacker:delStatusEffectSilent(xi.effect.SNEAK_ATTACK)
+        attacker:delStatusEffectSilent(xi.effect.TRICK_ATTACK)
+    end
 
     if isRanged and ammoCount ~= -1 then
         ammoUsed = ammoUsed + useAmmo(attacker)
@@ -629,6 +637,9 @@ xi.weaponskills.calculateRawWSDmg = function(attacker, target, wsID, tp, action,
         finaldmg = finaldmg * (100 + bonusdmg) / 100 -- Apply our "all hits" WS dmg bonuses
         finaldmg = finaldmg + firstHitBonus -- Finally add in our "first hit" WS dmg bonus from before
     end
+
+    -- Remove boost after all hits
+    attacker:delStatusEffectSilent(xi.effect.BOOST)
 
     -- Return our raw damage to then be modified by enemy reductions based off of melee/ranged
     calcParams.finalDmg = finaldmg

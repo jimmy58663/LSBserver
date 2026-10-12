@@ -40,6 +40,13 @@ end
 function CClientEntityPairActions:useAbility(target, abilityId)
 end
 
+---Use a Monstrosity TP move on a target
+---@param target CBaseEntity Target entity
+---@param datSkillId integer Client-facing DAT skill id (e.g. 343 for Fireball)
+---@return nil
+function CClientEntityPairActions:useMonsterSkill(target, datSkillId)
+end
+
 ---Change the current target
 ---@param target CBaseEntity New target entity
 ---@return nil
@@ -163,6 +170,15 @@ end
 function CClientEntityPairActions:setSearchMessage(message, msgType)
 end
 
+---Send 0x0C4 to equip, unequip or create a linkshell
+---@param invSlot integer
+---@param lsNum integer 1 or 2
+---@param active boolean
+---@param name? string Only used when creating
+---@return nil
+function CClientEntityPairActions:linkshellActive(invSlot, lsNum, active, name)
+end
+
 ---@param sellerInvSlot integer
 ---@param quantity integer
 ---@return nil
@@ -269,6 +285,13 @@ end
 ---@param entries EquipSetItem[] Items to equip
 ---@return nil
 function CClientEntityPairActions:equipSet(entries)
+end
+
+---Send a job change packet (requires a mog house or a zone with the mog menu)
+---@param mainJob xi.job Main job, 0 to leave unchanged
+---@param subJob? xi.job Support job, 0 or nil to leave unchanged
+---@return nil
+function CClientEntityPairActions:changeJob(mainJob, subJob)
 end
 
 ---Start a synthesis. Inventory slots are resolved automatically.

@@ -27,6 +27,7 @@
 #include "common/types/flat_hash_map.h"
 #include "data/enums/key_item.h"
 #include "entities/battle_entity.h"
+#include "enums/msg_basic.h"
 #include "enums/synthesis_effect.h"
 #include "enums/synthesis_result.h"
 #include "items.h"
@@ -794,6 +795,7 @@ static const FlatHashMap<uint16, uint8> materialLossRates = {
     { 1291, 100 }, // Golden Hakutaku Eye
     { 1292, 100 }, // Damp Hakutaku Eye
     { 1409, 100 }, // Spool of Siren's Macrame
+    { 2169, 100 }, // Cerberus Hide
     { 9091, 0 },   // Broken Lu Shang's Fishing Rod +1
 };
 

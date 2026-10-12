@@ -19,7 +19,7 @@ spellObject.onMagicCastingCheck = function(caster, target, spell)
     return 0
 end
 
-spellObject.onSpellCast = function(caster, target, spell)
+spellObject.onSpellCast = function(caster, target, spell, action)
     local params           = xi.spells.blue.getDefaultParams(caster)
     params.ecosystem       = xi.ecosystem.EMPTY
     params.tpModifier      = xi.spells.blue.tpMod.ACC
@@ -27,6 +27,7 @@ spellObject.onSpellCast = function(caster, target, spell)
     params.damageType      = xi.damageType.SLASHING
     params.skillchainType  = xi.skillchainType.COMPRESSION
     params.skillchainType2 = xi.skillchainType.SCISSION
+    params.shadowBehavior  = xi.mobskills.shadowBehavior.NUMSHADOWS_3 -- guessed
 
     params.numHits       = 1
     params.ftp0          = 2.0
@@ -37,7 +38,7 @@ spellObject.onSpellCast = function(caster, target, spell)
 
     params.str_wsc = 0.5
 
-    return xi.spells.blue.usePhysicalSpell(caster, target, spell, params)
+    return xi.spells.blue.usePhysicalSpell(caster, target, spell, params, action)
 end
 
 return spellObject

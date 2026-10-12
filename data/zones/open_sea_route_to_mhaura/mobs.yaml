@@ -46,7 +46,7 @@ templates:
         model_size:     1
         hitbox:        13
       spawn:
-        respawn: 300
+        type: [scripted]
     loot:
       drops:
         - chance: common
@@ -137,7 +137,7 @@ templates:
       behaviors:
         aggressive: true
       spawn:
-        respawn: 300
+        type: [scripted]
     loot:
       drops:
         - chance: uncommon
@@ -164,7 +164,7 @@ templates:
       behaviors:
         aggressive: true
       spawn:
-        respawn: 300
+        type: [scripted]
     loot:
       drops:
         - chance: always
@@ -229,8 +229,7 @@ templates:
       behaviors:
         aggressive: true
       spawn:
-        respawn: 300
-        type:    [at_night]
+        type: [scripted]
     loot:
       drops:
         - chance: common
@@ -292,8 +291,7 @@ templates:
       behaviors:
         aggressive: true
       spawn:
-        respawn: 300
-        type:    [weather]
+        type: [scripted]
     loot:
       drops:
         - chance: always
@@ -325,8 +323,7 @@ templates:
       behaviors:
         aggressive: true
       spawn:
-        respawn: 300
-        type:    [weather]
+        type: [scripted]
     loot:
       drops:
         - chance: always
@@ -367,34 +364,39 @@ spawns:
     level:    [81, 81]
   16969736:
     template: Gugru_Crab
-    at:       [-5.470, -7.160, 14.980, 188]
+    region:   region_1
     level:    [33, 35]
   16969737:
     template: Gugru_Crab
-    at:       [-0.820, -7.230, 19.420, 157]
+    region:   region_1
     level:    [33, 35]
   16969738:
     template: Ocean_Jagil
-    at:       [1.960, -7.170, 13.120, 65]
+    region:   region_1
     level:    [34, 36]
   16969739:
     template: Ocean_Jagil
-    at:       [-0.700, -7.160, 16.410, 122]
+    region:   region_1
     level:    [34, 36]
   16969740:
     template: Ocean_Kraken
-    at:       [1.210, -7.240, 23.490, 250]
+    region:   region_1
     level:    [41, 43]
   16969741:
     template: Revenant_SoZ_ENS_FY
     script:   Revenant
-    at:       [-3.080, -7.160, 4.920, 31]
-    level:    [41, 41]
+    region:   region_1
+    level:    [40, 41]
+    attributes:
+      spawn:
+        window:
+          start: 20
+          end:    4
   16969742:
     template: Thunder_Elemental
-    at:       [9.160, -7.640, 8.570, 154]
+    region:   region_1
     level:    [39, 40]
   16969743:
     template: Water_Elemental
-    at:       [9.160, -7.640, 8.570, 154]
+    region:   region_1
     level:    [39, 40]

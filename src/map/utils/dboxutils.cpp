@@ -26,12 +26,14 @@
 #include "common/settings.h"
 
 #include "entities/char_entity.h"
+#include "enums/msg_std.h"
 
 #include "items/transactions/item_claim.h"
 #include "utils/charutils.h"
 #include "utils/itemutils.h"
 
 #include "packets/c2s/0x04d_pbx.h"
+#include "packets/s2c/0x009_message.h"
 #include "packets/s2c/0x01d_item_same.h"
 #include "packets/s2c/0x04b_pbx_result.h"
 #include "universal_container.h"
@@ -58,6 +60,8 @@ void dboxutils::SendOldItems(CCharEntity* PChar, GP_CLI_COMMAND_PBX_BOXNO BoxNo)
         ShowWarningFmt("DBOX: Received action SendOldItems while UContainer is in an invalid state: {} ({})", PChar->getName(), PChar->id);
         return;
     }
+
+    BoxNo = OpenBoxNo(PChar);
 
     const auto rset = db::preparedStmt("SELECT itemid, itemsubid, slot, quantity, sent, extra, sender, charname FROM delivery_box WHERE charid = ? AND box = ? "
                                        "AND slot < 8 ORDER BY slot",
@@ -320,11 +324,11 @@ void dboxutils::CancelSendingItem(CCharEntity* PChar, GP_CLI_COMMAND_PBX_BOXNO B
                 if (rset && rset->rowsAffected())
                 {
                     const auto rset2 = db::preparedStmt(
-                        "DELETE FROM delivery_box WHERE senderid = ? AND box = 1 AND charid = ? AND itemid = ? AND quantity = ? "
+                        "DELETE FROM delivery_box WHERE senderid = ? AND box = 1 AND charid = ? AND itemid = ? AND quantity = ? AND extra = ? "
                         "AND slot >= 8 LIMIT 1",
-                        PChar->id, charid, PItem->getID(), PItem->getQuantity());
+                        PChar->id, charid, PItem->getID(), PItem->getQuantity(), PItem->m_extra);
 
-                    if (rset2 && rset->rowsAffected())
+                    if (rset2 && rset2->rowsAffected())
                     {
                         PChar->UContainer->GetItem(PostWorkNo)->setSent(false);
                         PChar->pushPacket<GP_SERV_COMMAND_PBX_RESULT>(GP_CLI_COMMAND_PBX_COMMAND::Cancel, BoxNo, PChar->UContainer->GetItem(PostWorkNo), PostWorkNo, PChar->UContainer->GetItemsCount(), 0x02);
@@ -649,6 +653,8 @@ void dboxutils::TakeItemFromCell(CCharEntity* PChar, GP_CLI_COMMAND_PBX_BOXNO Bo
         return;
     }
 
+    BoxNo = OpenBoxNo(PChar);
+
     if (!PChar->UContainer->IsSlotEmpty(PostWorkNo))
     {
         CItem* PItem = PChar->UContainer->GetItem(PostWorkNo);
@@ -656,6 +662,19 @@ void dboxutils::TakeItemFromCell(CCharEntity* PChar, GP_CLI_COMMAND_PBX_BOXNO Bo
         if (!PItem->isType(ITEM_CURRENCY) && PChar->getStorage(LOC_INVENTORY)->GetFreeSlotsCount() == 0)
         {
             PChar->pushPacket<GP_SERV_COMMAND_PBX_RESULT>(GP_CLI_COMMAND_PBX_COMMAND::Get, BoxNo, PItem, PostWorkNo, PChar->UContainer->GetItemsCount(), 0xB9);
+            return;
+        }
+
+        if (PItem->hasFlag(ItemFlag::Rare) && charutils::HasItem(PChar, PItem->getID()))
+        {
+            PChar->pushPacket<GP_SERV_COMMAND_MESSAGE>(PChar, PItem->getID(), 0, MsgStd::ItemEx);
+            PChar->pushPacket<GP_SERV_COMMAND_PBX_RESULT>(GP_CLI_COMMAND_PBX_COMMAND::Get, BoxNo, PItem, PostWorkNo, PChar->UContainer->GetItemsCount(), 0xBA);
+            return;
+        }
+
+        if (BoxNo == GP_CLI_COMMAND_PBX_BOXNO::Outgoing && PItem->isSent())
+        {
+            PChar->pushPacket<GP_SERV_COMMAND_PBX_RESULT>(GP_CLI_COMMAND_PBX_COMMAND::Get, BoxNo, PItem, PostWorkNo, PChar->UContainer->GetItemsCount(), 0xBA);
             return;
         }
 
@@ -694,8 +713,8 @@ void dboxutils::TakeItemFromCell(CCharEntity* PChar, GP_CLI_COMMAND_PBX_BOXNO Bo
             }
 
             // If we got here, something went wrong.
-            throw std::runtime_error(fmt::format("DBOX: Could not finalize take item transaction (player: {} ({}), PostWorkNo: {})",
-                                                 PChar->getName(), PChar->id, PostWorkNo));
+            throw std::runtime_error(fmt::format("DBOX: Could not finalize take item transaction (player: {} ({}), BoxNo: {}, PostWorkNo: {}, item: {} x{}, sent: {})",
+                                                 PChar->getName(), PChar->id, static_cast<int8_t>(BoxNo), PostWorkNo, PItem->getID(), PItem->getQuantity(), PItem->isSent()));
         });
         if (success && !transaction->commit())
         {
@@ -827,4 +846,19 @@ auto dboxutils::IsRecvBoxOpen(const CCharEntity* PChar) -> bool
 auto dboxutils::IsAnyDeliveryBoxOpen(CCharEntity* PChar) -> bool
 {
     return IsSendBoxOpen(PChar) || IsRecvBoxOpen(PChar);
+}
+
+auto dboxutils::OpenBoxNo(const CCharEntity* PChar) -> GP_CLI_COMMAND_PBX_BOXNO
+{
+    if (IsSendBoxOpen(PChar))
+    {
+        return GP_CLI_COMMAND_PBX_BOXNO::Outgoing;
+    }
+
+    if (IsRecvBoxOpen(PChar))
+    {
+        return GP_CLI_COMMAND_PBX_BOXNO::Incoming;
+    }
+
+    return GP_CLI_COMMAND_PBX_BOXNO::None;
 }

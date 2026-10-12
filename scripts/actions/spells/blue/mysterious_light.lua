@@ -19,7 +19,7 @@ spellObject.onMagicCastingCheck = function(caster, target, spell)
     return 0
 end
 
-spellObject.onSpellCast = function(caster, target, spell)
+spellObject.onSpellCast = function(caster, target, spell, action)
     local params       = xi.spells.blue.getDefaultParams(caster)
     params.ecosystem   = xi.ecosystem.ARCANA
     params.attackType  = xi.attackType.MAGICAL
@@ -29,6 +29,8 @@ spellObject.onSpellCast = function(caster, target, spell)
     params.ftp0            = 2.0
     params.dStatMultiplier = 1.0
     params.baseDamageCap   = 56
+    params.halfThreshold   = 77
+    params.lowThreshold    = -24
 
     params.chr_wsc = 0.3
 

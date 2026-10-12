@@ -53,10 +53,13 @@
 #include "data/enums/weather.h"
 #include "enums/chat_message_type.h"
 #include "enums/four_cc.h"
+#include "enums/msg_basic.h"
 #include "enums/msg_std.h"
 #include "item_container.h"
+#include "items/exdata/fish.h"
 #include "items/transactions/item_claim.h"
 #include "itemutils.h"
+#include "lua/luautils.h"
 #include "packets/c2s/0x110_fishing_2.h"
 #include "packets/s2c/0x029_battle_message.h"
 #include "status_effect_container.h"
@@ -626,7 +629,7 @@ uint8 CalculateLuckyTiming(CCharEntity* PChar, uint8 fishingSkill, uint8 catchSk
     }
 
     luckyTiming += (uint8)std::floor(bonus);
-    luckyTiming -= (uint8)std::floor((penalty > luckyTiming) ? luckyTiming : penalty);
+    luckyTiming -= (uint8)std::floor(std::min<float>(penalty, luckyTiming));
 
     return std::max<uint8>(5, luckyTiming);
 }
@@ -1105,7 +1108,7 @@ auto GetFishPool(const xi::ZoneId zoneID, const uint8 areaID, const uint16 BaitI
 
     for (auto fish : FishingGroups[groupId])
     {
-        if ((!FishList[fish.first]->item) && FishingBaitAffinities.count(BaitID) && FishingBaitAffinities[BaitID].count(fish.first))
+        if ((!FishList[fish.first]->item) && FishingBaitAffinities.contains(BaitID) && FishingBaitAffinities[BaitID].contains(fish.first))
         {
             pool.insert(std::make_pair(FishList[fish.first], fish.second));
         }
@@ -1534,8 +1537,9 @@ int32 CatchFish(CCharEntity* PChar, uint16 FishID, BigFish bigFish, uint16 lengt
 
         if (bigFish && length > 1 && weight > 1)
         {
-            Fish->SetLength(length);
-            Fish->SetWeight(weight);
+            auto& fishData  = Fish->exdata<Exdata::Fish>();
+            fishData.Size   = length;
+            fishData.Weight = weight;
         }
 
         Fish->setQuantity(Count);
@@ -2224,7 +2228,7 @@ fishresponse_t* FishingCheck(CCharEntity* PChar, uint8 fishingSkill, rod_t* rod,
         {
             fish_t* fishIter = fish.first;
 
-            if (RemoveList.count(fishIter->fishID) > 0)
+            if (RemoveList.contains(fishIter->fishID))
             {
                 continue;
             }
@@ -2240,7 +2244,7 @@ fishresponse_t* FishingCheck(CCharEntity* PChar, uint8 fishingSkill, rod_t* rod,
                 uint16 hookChance = CalculateHookChance(fishingSkill, fishIter, bait, rod);
                 FishHookPool.insert(std::make_pair(fishIter, hookChance));
                 FishHookChanceTotal += hookChance;
-                maxChance = (hookChance > maxChance) ? hookChance : maxChance;
+                maxChance = std::max(maxChance, hookChance);
             }
         }
 
@@ -2252,7 +2256,7 @@ fishresponse_t* FishingCheck(CCharEntity* PChar, uint8 fishingSkill, rod_t* rod,
     {
         for (auto* item : ItemPool)
         {
-            if (RemoveList.count(item->fishID) > 0)
+            if (RemoveList.contains(item->fishID))
             {
                 continue;
             }
@@ -2289,7 +2293,7 @@ fishresponse_t* FishingCheck(CCharEntity* PChar, uint8 fishingSkill, rod_t* rod,
     {
         for (auto* mob : MobPool)
         {
-            if (RemoveList.count(mob->mobId) > 0)
+            if (RemoveList.contains(mob->mobId))
             {
                 continue;
             }
@@ -2407,7 +2411,7 @@ fishresponse_t* FishingCheck(CCharEntity* PChar, uint8 fishingSkill, rod_t* rod,
             uint16  hookChance = fishIter.second;
             hookChanceAggregate += hookChance;
 
-            if (hookSelect < hookChanceAggregate && NoCatchList.count(fish->fishID) == 0)
+            if (hookSelect < hookChanceAggregate && !NoCatchList.contains(fish->fishID))
             {
                 FishSelection   = fish;
                 uint8 skilldiff = 0;
@@ -2443,7 +2447,7 @@ fishresponse_t* FishingCheck(CCharEntity* PChar, uint8 fishingSkill, rod_t* rod,
             uint16  hookChance = itemIter.second;
             hookChanceAggregate += hookChance;
 
-            if (hookSelect < hookChanceAggregate && NoCatchList.count(item->fishID) == 0)
+            if (hookSelect < hookChanceAggregate && !NoCatchList.contains(item->fishID))
             {
                 ItemSelection = item;
                 break;
@@ -2742,7 +2746,9 @@ void FishingAction(CCharEntity* PChar, const GP_CLI_COMMAND_FISHING_2_MODE mode,
     uint16 MessageOffset = GetMessageOffset(PChar->getZone());
     uint32 vanaTime      = earth_time::vanadiel_timestamp();
 
-    if (PChar->fishingToken == 0)
+    // Ending the minigame clears the token before the client requests release.
+    // Release must still clean up the catch and restore the idle animation.
+    if (PChar->fishingToken == 0 && mode != GP_CLI_COMMAND_FISHING_2_MODE::RequestRelease)
     {
         PChar->animation = xi::Animation::NewFishingStop;
         return;
@@ -2991,15 +2997,14 @@ void FishingAction(CCharEntity* PChar, const GP_CLI_COMMAND_FISHING_2_MODE mode,
     }
 }
 
-auto GetFish(uint16 itemid) -> std::unique_ptr<CItemFish>
+auto GetFish(uint16 itemid) -> std::unique_ptr<CItem>
 {
-    const CItem* PItem = xi::items::lookup(itemid);
-
-    if (PItem && FishList[itemid])
+    if (!FishList[itemid])
     {
-        return std::make_unique<CItemFish>(*PItem);
+        return nullptr;
     }
-    return nullptr;
+
+    return xi::items::spawn(itemid);
 }
 
 /************************************************************************

@@ -42,6 +42,7 @@
 #include "mobskill.h"
 #include "status_effect_container.h"
 #include "weapon_skill.h"
+#include "zone.h"
 
 //
 // Forward declarations
@@ -174,6 +175,7 @@ auto trustutils::SpawnTrust(CCharEntity* PMaster, uint32 TrustID) -> CTrustEntit
     if (PMaster->PParty == nullptr)
     {
         PMaster->PParty = new CParty(PMaster);
+        PMaster->PParty->MarkFormedByTrusts();
     }
 
     PMaster->PTrusts.insert(PMaster->PTrusts.end(), PTrust);
@@ -654,7 +656,7 @@ void LoadTrustStatsAndSkills(CTrustEntity* PTrust)
     // Skills =======================
     for (int i = static_cast<int>(xi::SkillType::DivineMagic); i <= static_cast<int>(xi::SkillType::BlueMagic); i++)
     {
-        uint16 maxSkill = battleutils::GetMaxSkill((xi::SkillType)i, mJob, mLvl > 99 ? 99 : mLvl);
+        uint16 maxSkill = battleutils::GetMaxSkill((xi::SkillType)i, mJob, std::min<uint8>(mLvl, 99));
         if (maxSkill != 0)
         {
             PTrust->WorkingSkills.skill[i] = static_cast<uint16>(maxSkill * settings::get<float>("map.ALTER_EGO_SKILL_MULTIPLIER"));
@@ -662,7 +664,7 @@ void LoadTrustStatsAndSkills(CTrustEntity* PTrust)
         else // if the mob is WAR/BLM and can cast spell
         {
             // set skill as high as main level, so their spells won't get resisted
-            uint16 maxSubSkill = battleutils::GetMaxSkill((xi::SkillType)i, sJob, mLvl > 99 ? 99 : mLvl);
+            uint16 maxSubSkill = battleutils::GetMaxSkill((xi::SkillType)i, sJob, std::min<uint8>(mLvl, 99));
 
             if (maxSubSkill != 0)
             {
@@ -673,7 +675,7 @@ void LoadTrustStatsAndSkills(CTrustEntity* PTrust)
 
     for (int i = static_cast<int>(xi::SkillType::HandToHand); i <= static_cast<int>(xi::SkillType::Staff); i++)
     {
-        uint16 maxSkill = battleutils::GetMaxSkill(static_cast<uint8>(i), mLvl > 99 ? 99 : mLvl);
+        uint16 maxSkill = battleutils::GetMaxSkill(static_cast<uint8>(i), std::min<uint8>(mLvl, 99));
         if (maxSkill != 0)
         {
             PTrust->WorkingSkills.skill[i] = static_cast<uint16>(maxSkill * settings::get<float>("map.ALTER_EGO_SKILL_MULTIPLIER"));

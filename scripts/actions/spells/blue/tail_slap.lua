@@ -19,7 +19,7 @@ spellObject.onMagicCastingCheck = function(caster, target, spell)
     return 0
 end
 
-spellObject.onSpellCast = function(caster, target, spell)
+spellObject.onSpellCast = function(caster, target, spell, action)
     local params          = xi.spells.blue.getDefaultParams(caster)
     params.ecosystem      = xi.ecosystem.BEASTMEN
     params.tpModifier     = xi.spells.blue.tpMod.ATTACK
@@ -27,6 +27,7 @@ spellObject.onSpellCast = function(caster, target, spell)
     params.damageType     = xi.damageType.HAND_TO_HAND
     params.skillchainType = xi.skillchainType.REVERBERATION
     params.dStat          = xi.mod.INT
+    params.shadowBehavior = xi.mobskills.shadowBehavior.NUMSHADOWS_3 -- guessed
 
     params.numHits       = 1
     params.ftp0          = 1.625
@@ -46,7 +47,7 @@ spellObject.onSpellCast = function(caster, target, spell)
     params.vit_wsc = 0.5
 
     -- Handle damage.
-    local damage = xi.spells.blue.usePhysicalSpell(caster, target, spell, params)
+    local damage = xi.spells.blue.usePhysicalSpell(caster, target, spell, params, action)
 
     if params.hitsLanded <= 0 then
         return damage

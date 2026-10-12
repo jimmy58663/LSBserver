@@ -104,15 +104,13 @@ m:addOverrideByEra('xi.job_utils.dragoon.useSpiritLink', {
 
         -- Handle Stoneskin.
         local stoneskinPower = 0
-
-        if player:hasStatusEffect(xi.effect.STONESKIN) then
-            stoneskinPower = player:getMod(xi.mod.STONESKIN)
+        local stoneskin      = player:getStatusEffect(xi.effect.STONESKIN)
+        if stoneskin then
+            stoneskinPower = stoneskin:getPower()
 
             -- If stoneskin is more powerfull than the amount to be drained.
             if stoneskinPower > drainamount then
-                local effect = player:getStatusEffect(xi.effect.STONESKIN)
-                effect:setPower(effect:getPower() - drainamount) -- Fixes the status effect so when it ends it uses the new power instead of old.
-                player:delMod(xi.mod.STONESKIN, drainamount)     -- Removes the amount from the mod.
+                stoneskin:setPower(stoneskinPower - drainamount) -- Fixes the status effect so when it ends it uses the new power instead of old.
 
             -- If stoneskin is as powerful or less than the amount to be drained.
             else
@@ -127,7 +125,7 @@ m:addOverrideByEra('xi.job_utils.dragoon.useSpiritLink', {
         local alpha     = math.floor(wyvern:getMainLvl() * 0.7)
         local healPet   = (drainamount + playerMND + alpha) * 2
 
-        if player:getEquipID(xi.slot.HEAD) == xi.item.DRACHEN_ARMET_P1 then
+        if xi.equipment.getUsableEquipID(player, xi.slot.HEAD) == xi.item.DRACHEN_ARMET_P1 then
             healPet = healPet + 10
         end
 
@@ -162,15 +160,13 @@ m:addOverrideByEra('xi.job_utils.dragoon.useSpiritLink', {
 
         -- Handle Stoneskin.
         local stoneskinPower = 0
-
-        if player:hasStatusEffect(xi.effect.STONESKIN) then
-            stoneskinPower = player:getMod(xi.mod.STONESKIN)
+        local stoneskin      = player:getStatusEffect(xi.effect.STONESKIN)
+        if stoneskin then
+            stoneskinPower = stoneskin:getPower()
 
             -- If stoneskin is more powerfull than the amount to be drained.
             if stoneskinPower > drainAmount then
-                local effect = player:getStatusEffect(xi.effect.STONESKIN)
-                effect:setPower(effect:getPower() - drainAmount) -- Fixes the status effect so when it ends it uses the new power instead of old.
-                player:delMod(xi.mod.STONESKIN, drainAmount)     -- Removes the amount from the mod.
+                stoneskin:setPower(stoneskinPower - drainAmount) -- Fixes the status effect so when it ends it uses the new power instead of old.
 
             -- If stoneskin is as powerful or less than the amount to be drained.
             else
@@ -187,7 +183,7 @@ m:addOverrideByEra('xi.job_utils.dragoon.useSpiritLink', {
         local alpha     = math.floor(wyvern:getMainLvl() * 0.7)
         local healPet   = drainAmount + playerMND + alpha
 
-        if player:getEquipID(xi.slot.HEAD) == xi.item.DRACHEN_ARMET_P1 then
+        if xi.equipment.getUsableEquipID(player, xi.slot.HEAD) == xi.item.DRACHEN_ARMET_P1 then
             healPet = healPet + 10
         end
 
@@ -283,26 +279,6 @@ m:addOverrideByEra('xi.job_utils.dragoon.addWyvernExp', {
     end,
 })
 
--- Wyvern Level Removal: Match addWyvernExp by omitting ALL_WSDMG_ALL_HITS
-m:addOverrideByEra('xi.pets.wyvern.removeWyvernLevels', {
-    [xi.expansion.ROV] = function(mob)
-        local master  = mob:getMaster()
-        local numLvls = mob:getLocalVar('level_Ups')
-
-        if numLvls ~= 0 then
-            local wyvernAttributeIncreaseEffectJP = master:getJobPointLevel(xi.jp.WYVERN_ATTR_BONUS)
-            local wyvernBonusDA = master:getMod(xi.mod.WYVERN_ATTRIBUTE_DA)
-
-            master:delMod(xi.mod.ATT, wyvernAttributeIncreaseEffectJP * numLvls)
-            master:delMod(xi.mod.DEF, wyvernAttributeIncreaseEffectJP * numLvls)
-            master:delMod(xi.mod.ATTP, 4 * numLvls)
-            master:delMod(xi.mod.DEFP, 4 * numLvls)
-            master:delMod(xi.mod.HASTE_ABILITY, 200 * numLvls)
-            master:delMod(xi.mod.DOUBLE_ATTACK, wyvernBonusDA * numLvls)
-        end
-    end,
-})
-
 m:addOverrideByEra('xi.effects.spirit_surge.onEffectGain', {
     -- Spirit Surge: Removes ATK and DEF bonuses
     -- Source: https://forum.square-enix.com/ffxi/threads/44090-Sep-9-2014-%28JST%29-Version-Update
@@ -327,98 +303,6 @@ m:addOverrideByEra('xi.effects.spirit_surge.onEffectGain', {
         effect:addMod(xi.mod.ACC, 50)
         effect:addMod(xi.mod.HASTE_MAGIC, 2500)
         effect:addMod(xi.mod.MAIN_DMG_RATING, target:getJobPointLevel(xi.jp.SPIRIT_SURGE_EFFECT))
-    end,
-})
-
-m:addOverrideByEra('xi.pets.wyvern.onMobSpawn', {
-    -- Wyvern Breath: Show readying animation to match the reverted 3-second prepare time
-    -- Source: https://forum.square-enix.com/ffxi/threads/44090-Sep-9-2014-%28JST%29-Version-Update
-    [xi.expansion.SOA] = function(mob)
-        super(mob)
-
-        mob:addMod(xi.mod.WYVERN_SHOW_READYING, 1)
-    end,
-
-    -- Wyvern Spawn: Revert innate -40% DT and reduce status breath table
-    -- DT Source: https://www.bg-wiki.com/ffxi/Version_Update_(09/19/2011)
-    -- Status Breath Source: https://www.bg-wiki.com/ffxi/Version_Update_(02/13/2012)
-    [xi.expansion.ABYSSEA] = function(mob)
-        super(mob)
-
-        local master = mob:getMaster()
-
-        -- Revert innate -40% DT
-        mob:addMod(xi.mod.DMG, 4000)
-
-        -- Determine if wyvern is DEFENSIVE type (status breath on WS)
-        local defensiveJobs =
-        {
-            [xi.job.WHM] = true,
-            [xi.job.BLM] = true,
-            [xi.job.RDM] = true,
-            [xi.job.SMN] = true,
-            [xi.job.BLU] = true,
-            [xi.job.SCH] = true,
-            [xi.job.GEO] = true,
-        }
-
-        if defensiveJobs[master:getSubJob()] then
-            -- Replace WS listener with pre-2012 status breath table
-            master:removeListener('PET_WYVERN_WS')
-
-            local removeBreathTable =
-            {
-                { 40, xi.jobAbility.REMOVE_PARALYSIS, { xi.effect.PARALYSIS } },
-                { 20, xi.jobAbility.REMOVE_BLINDNESS, { xi.effect.BLINDNESS } },
-                {  1, xi.jobAbility.REMOVE_POISON,    { xi.effect.POISON    } },
-            }
-
-            local breathRange = 14
-
-            local function doStatusBreath(target, player)
-                local wyvern = player:getPet()
-
-                for _, v in pairs(removeBreathTable) do
-                    local minLevel = v[1]
-                    local ability  = v[2]
-                    local statuses = v[3]
-
-                    if wyvern:getMainLvl() >= minLevel then
-                        for _, effect in pairs(statuses) do
-                            if
-                                target:hasStatusEffect(effect) and
-                                wyvern:checkDistance(target) <= breathRange
-                            then
-                                wyvern:usePetAbility(ability, target)
-
-                                return true
-                            end
-                        end
-                    end
-                end
-
-                return false
-            end
-
-            master:addListener('WEAPONSKILL_USE', 'PET_WYVERN_WS', function(player, target, skillid)
-                if not doStatusBreath(player, player) then
-                    local party = player:getParty()
-                    for _, member in pairs(party) do
-                        if doStatusBreath(member, player) then
-                            break
-                        end
-                    end
-                end
-            end)
-        end
-    end,
-
-    -- Wyvern Spawn: Remove EXPERIENCE_POINTS listener that feeds wyvern EXP system
-    [xi.expansion.WOTG] = function(mob)
-        super(mob)
-
-        local master = mob:getMaster()
-        master:removeListener('PET_WYVERN_EXP')
     end,
 })
 

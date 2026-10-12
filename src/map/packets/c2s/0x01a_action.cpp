@@ -28,11 +28,15 @@
 #include "data/enums/key_item.h"
 #include "enmity_container.h"
 #include "entities/char_entity.h"
+#include "entities/npc_entity.h"
 #include "entities/trust_entity.h"
+#include "enums/msg_basic.h"
 #include "enums/msg_std.h"
 #include "items.h"
 #include "items/transactions/item_claim.h"
 #include "latent_effect_container.h"
+#include "lua/luautils.h"
+#include "packets/c2s/validation.h"
 #include "packets/s2c/0x01d_item_same.h"
 #include "packets/s2c/0x029_battle_message.h"
 #include "packets/s2c/0x02f_dig.h"
@@ -44,6 +48,10 @@
 #include "status_effect_container.h"
 #include "trade_container.h"
 #include "utils/battleutils.h"
+#include "utils/charutils.h"
+#include "utils/fishingutils.h"
+#include "utils/mountutils.h"
+#include "zone.h"
 
 namespace
 {
@@ -99,7 +107,7 @@ auto GP_CLI_COMMAND_ACTION::validate(MapSession* PSession, const CCharEntity* PC
                     case GP_CLI_COMMAND_ACTION_ACTIONID::Attack:
                     {
                         // Note: It is possible to attack while fishing on retail and is disabled here on purpose.
-                        pv.blockedBy({ BlockedState::InEvent, BlockedState::Healing, BlockedState::Sitting, BlockedState::Crafting, BlockedState::Fishing, BlockedState::PreventAction });
+                        pv.blockedBy({ BlockedState::InEvent, BlockedState::Healing, BlockedState::Sitting, BlockedState::Crafting, BlockedState::Fishing, BlockedState::PreventAction, BlockedState::Gestation });
                         break;
                     }
                     case GP_CLI_COMMAND_ACTION_ACTIONID::CastMagic:
@@ -108,7 +116,8 @@ auto GP_CLI_COMMAND_ACTION::validate(MapSession* PSession, const CCharEntity* PC
                     case GP_CLI_COMMAND_ACTION_ACTIONID::Weaponskill:
                     case GP_CLI_COMMAND_ACTION_ACTIONID::MonsterSkill: // MonsterSkill is entirely assumed
                     {
-                        pv.blockedBy({ BlockedState::InEvent, BlockedState::Healing, BlockedState::Crafting, BlockedState::Fishing, BlockedState::PreventAction, BlockedState::Mounted })
+                        // A Monipulator under Gestation cannot be seen, so nothing it starts may land.
+                        pv.blockedBy({ BlockedState::InEvent, BlockedState::Healing, BlockedState::Crafting, BlockedState::Fishing, BlockedState::PreventAction, BlockedState::Mounted, BlockedState::Gestation })
                             .mustEqual(PChar->animation == xi::Animation::None || PChar->animation == xi::Animation::Attack, true, "Character in invalid animation state.");
                         break;
                     }
@@ -257,8 +266,15 @@ void GP_CLI_COMMAND_ACTION::process(MapSession* PSession, CCharEntity* PChar) co
                 return;
             }
 
+            if (const auto* PNpcEntity = dynamic_cast<CNpcEntity*>(PNpc); PNpcEntity && PNpcEntity->contentDisabled())
+            {
+                PChar->pushPacket<GP_SERV_COMMAND_EVENTUCOFF>(PChar, GP_SERV_COMMAND_EVENTUCOFF_MODE::Standard);
+                return;
+            }
+
             // NOTE: Moogles inside of mog houses are the exception for not requiring Spawned or Status checks.
-            if (distance(PNpc->loc.p, PChar->loc.p) <= 6.0f && ((PNpc->PAI->IsSpawned() && PNpc->status == xi::Status::Normal) || PChar->inMogHouse()))
+            //     : Visitors get no response.
+            if (distance(PNpc->loc.p, PChar->loc.p) <= 6.0f && ((PNpc->PAI->IsSpawned() && PNpc->status == xi::Status::Normal) || PChar->inMogHouse(xi::MogHouse::Own)))
             {
                 PNpc->PAI->Trigger(PChar);
                 PChar->m_charHistory.npcInteractions++;
@@ -452,6 +468,9 @@ void GP_CLI_COMMAND_ACTION::process(MapSession* PSession, CCharEntity* PChar) co
                 return;
             }
 
+            // Kept greens can only go back to their own stack or to a free slot.
+            const auto greensStayInSlot = PGysahl->getQuantity() > 1;
+
             auto transaction = ItemClaimTransaction::start(PChar);
             if (!transaction || !transaction->take(LOC_INVENTORY, slotID, 1))
             {
@@ -460,14 +479,19 @@ void GP_CLI_COMMAND_ACTION::process(MapSession* PSession, CCharEntity* PChar) co
                 return;
             }
 
-            // greens are taken first, and a dig refused before it starts rolls them back.
-            // Digging and finding nothing returns true, so those greens are spent
-            if (!luautils::OnChocoboDig(PChar))
+            // A refused dig, or one whose chocobo keeps the greens, rolls them back.
+            const auto dig = luautils::OnChocoboDig(PChar);
+            if (!dig.dug)
             {
                 return;
             }
 
-            if (!transaction->commit())
+            const auto returnsGreens = dig.keepGreens && (greensStayInSlot || PChar->getStorage(LOC_INVENTORY)->GetFreeSlotsCount() > 0);
+            if (returnsGreens)
+            {
+                transaction->rollback();
+            }
+            else if (!transaction->commit())
             {
                 return;
             }
@@ -587,15 +611,36 @@ void GP_CLI_COMMAND_ACTION::process(MapSession* PSession, CCharEntity* PChar) co
                     return;
                 }
 
-                PChar->m_mountId = this->Mount.MountId ? this->Mount.MountId + 1 : 0;
+                const auto duration = [&]() -> std::chrono::minutes
+                {
+                    const auto chocobo = ChocoboCustomProperties{ .properties = PChar->m_chocoboUserData.fieldChocobo };
+                    if (!this->Mount.MountId && chocobo.minutes > 0)
+                    {
+                        return std::chrono::minutes{ chocobo.minutes };
+                    }
+
+                    return 30min;
+                }();
+
+                const auto mountId = [&]() -> uint32
+                {
+                    if (this->Mount.MountId)
+                    {
+                        return this->Mount.MountId + 1;
+                    }
+
+                    return 0;
+                }();
+
+                PChar->m_mountId = static_cast<uint8>(mountId);
                 PChar->StatusEffectContainer->AddStatusEffectSilent(
                     xi::StatusEffect::Mounted,
                     static_cast<uint16>(xi::StatusEffect::Mounted),
-                    this->Mount.MountId ? this->Mount.MountId + 1 : 0,
+                    static_cast<uint16>(mountId),
                     0s,
-                    30min,
+                    duration,
                     0,
-                    0x40); // previously known as nameflag "FLAG_CHOCOBO"
+                    mountutils::kPersonalChocoboFlag); // previously known as nameflag "FLAG_CHOCOBO"
 
                 PChar->PRecastContainer->Add(RECAST_ABILITY, Recast::Mount, 60s);
                 PChar->pushPacket<GP_SERV_COMMAND_ABIL_RECAST>(PChar);

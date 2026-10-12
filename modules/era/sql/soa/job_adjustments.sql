@@ -17,7 +17,7 @@ UPDATE abilities SET recastTime = 900 WHERE name = 'mug';
 ------------------------------------
 
 -- Desperate Blows: Revert job trait to be merit unlocked
-UPDATE traits SET meritid = 2502, level = 75 WHERE name = 'desperate blows';
+UPDATE traits SET meritid = 2502, level = 75, value = 0 WHERE name = 'desperate blows';
 
 ------------------------------------
 -- Beastmaster
@@ -75,4 +75,34 @@ UPDATE pet_skills SET pet_prepare_time = 3000 WHERE pet_skill_name IN (
     'sand_breath',
     'lightning_breath',
     'hydro_breath'
+);
+
+-- Remove skill chain properties from jugpet skills.
+-- These were added Febuary 19th, 2015
+-- https://wiki.ffo.jp/html/32665.html
+UPDATE pet_skills SET primary_sc = 0, secondary_sc = 0, tertiary_sc = 0 WHERE pet_skill_name IN (
+    'foot_kick',
+    'whirl_claws',
+    'head_butt',
+    'wild_oats',
+    'leaf_dagger',
+    'razor_fang',
+    'claw_cyclone',
+    'tail_blow',
+    'blockhead',
+    'brain_crush',
+    'lamb_chop',
+    'sheep_charge',
+    'big_scissors',
+    'needleshot',
+    'random_needles',
+    'frogkick',
+    'power_attack_beetle',
+    'rhino_attack',
+    'mandibular_bite',
+    'nimble_snap',
+    'cyclotail',
+    'double_claw',
+    'grapple',
+    'spinning_top'
 );

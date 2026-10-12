@@ -490,6 +490,7 @@ xi.combat.physical.calculateWSC = function(actor, wsSTRmod, wsDEXmod, wsVITmod, 
 end
 
 -- TP factor equation. Used to determine TP modifer across all cases of 'X varies with TP'
+-- TODO: Note - Will be depreciated/superceded by calculateTPScaling()
 xi.combat.physical.calculateTPfactor = function(actorTP, tpModifierTable)
     if not tpModifierTable then
         return 0
@@ -504,6 +505,36 @@ xi.combat.physical.calculateTPfactor = function(actorTP, tpModifierTable)
     end
 
     return tpFactor
+end
+
+xi.combat.physical.calculateTPScaling = function(actorTP, tpModifierTable)
+    if
+        not tpModifierTable or
+        #tpModifierTable == 0
+    then
+        return 0
+    end
+
+    -- At or below the first breakpoint, use the first modifier
+    if actorTP <= tpModifierTable[1].tp then
+        return tpModifierTable[1].modifier
+    end
+
+    -- Find the two TP breakpoints actorTP falls between
+    for i = 1, #tpModifierTable - 1 do
+        local lowerBreakpoint = tpModifierTable[i]
+        local upperBreakpoint = tpModifierTable[i + 1]
+
+        if actorTP <= upperBreakpoint.tp then
+            return lowerBreakpoint.modifier +
+                (actorTP - lowerBreakpoint.tp) *
+                (upperBreakpoint.modifier - lowerBreakpoint.modifier) /
+                (upperBreakpoint.tp - lowerBreakpoint.tp)
+        end
+    end
+
+    -- At or above the final breakpoint, use the final modifier
+    return tpModifierTable[#tpModifierTable].modifier
 end
 
 -- TP Multiplier calculations.
@@ -648,6 +679,43 @@ local function getSpikeRatio(isPC, wRatio)
     return 0
 end
 
+-- Signet provides some DEF based on your level against the target under some conditions below
+local function shouldApplySignetBonus(attacker, target)
+    if
+        target:hasStatusEffect(xi.effect.SIGNET) and
+        attacker:isMob() and
+        not attacker:isNM() and
+        target:isPC() and
+        target:checkDifficulty(attacker) <= xi.mobDifficulty.EVEN_MATCH and
+        target:getCurrentRegion() <= xi.region.LIMBUS
+    then
+        local playerTarget = target:getTarget() -- Fetch their auto attack target
+
+        if playerTarget and playerTarget:getID() == attacker:getID() then
+            return true
+        end
+    end
+
+    return false
+end
+
+local function getTargetDefense(actor, target)
+    local targetDefense = math.max(1, target:getStat(xi.mod.DEF))
+
+    -- 3.125 DEF per level from 1-40
+    -- 7.5 DEF per level from 41-50+
+    -- These are added together if you are 40+
+    -- caps at +200 total
+    if shouldApplySignetBonus(actor, target) then
+        local level    = target:getMainLvl()
+        local bonusDef = math.floor(math.min(level * 3.125, 125) + utils.clamp((level - 40) * 7.5, 0, 75))
+
+        targetDefense = targetDefense + bonusDef
+    end
+
+    return targetDefense
+end
+
 -- WARNING: This function is used in src/utils/battleutils.cpp "GetDamageRatio" function.
 -- If you update this parameters, update them there aswell.
 ---@param actor CBaseEntity
@@ -668,7 +736,7 @@ xi.combat.physical.calculateMeleePDIF = function(actor, target, weaponType, wsAt
     -- Step 1: Attack / Defense Ratio
     ----------------------------------------
     local baseRatio     = 0
-    local targetDefense = math.max(1, target:getStat(xi.mod.DEF))
+    local targetDefense = getTargetDefense(actor, target)
     local flourishBonus = 1
 
     -- Actor Weaponskill Specific Attack modifiers.
@@ -830,12 +898,29 @@ xi.combat.physical.calculateRangedPDIF = function(actor, target, weaponType, wsA
     ----------------------------------------
     local baseRatio       = 0
     local actorAttack     = 0
-    local targetDefense   = math.max(1, target:getStat(xi.mod.DEF))
+    local targetDefense   = getTargetDefense(actor, target)
     local flourishBonus   = 1
     local distancePenalty = 0
 
     if not actor:isMob() then
         distancePenalty = xi.combat.ranged.attackDistancePenalty(actor, target)
+    else
+        local distance               = actor:checkDistance(target)
+        local meleeRange             = actor:getMeleeRange(target)
+        local distancePastMeleeRange = math.max(distance - meleeRange, 0)
+
+        -- Apply -5/256 attack multiplier per 1 yalm up to 10 yalms for a max of 50/256
+        -- 0.1 through 1.0 yalms is the floor of -5/256
+        -- Jimmayus' research shows its not actually 5/256 per 1 yalm, i've left it here for reference
+        -- The specific per-distance block values at -5/-5/-5/-5/-5/-5/-6/-5/-5/-4
+        -- ToAU and later:                           -2/-3/-2/-3/-2/-3/-4/-2/-2/-2
+        if distancePastMeleeRange >= 0.1 then
+            local penalty = utils.clamp(5 / 256 * math.floor(distancePastMeleeRange), 5 / 256, 50 / 256)
+
+            -- TODO: ToAU and later halve this mod
+            -- TODO: is this multiplicative with wsAttackMod instead? Normally it is 1.0. There are very few ranged moves.
+            wsAttackMod = wsAttackMod - penalty
+        end
     end
 
     -- Actor Weaponskill Specific Attack modifiers.
@@ -1393,6 +1478,7 @@ xi.combat.physical.calculateBlockRate = function(defender, attacker)
     return blockRate
 end
 
+-- Returns a number to reduce block damage by
 xi.combat.physical.getDamageReductionForBlock = function(defender, attacker, damage)
     -- save original damage for comparison
     local originalDamage = damage
@@ -1409,6 +1495,8 @@ xi.combat.physical.getDamageReductionForBlock = function(defender, attacker, dam
         else
             damage = math.floor(damage * 0.5)
         end
+    else
+        return 0 -- Return no reduction if damage is <= 0
     end
 
     -- return the difference between original and new damage

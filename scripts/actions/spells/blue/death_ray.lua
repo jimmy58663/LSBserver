@@ -19,7 +19,7 @@ spellObject.onMagicCastingCheck = function(caster, target, spell)
     return 0
 end
 
-spellObject.onSpellCast = function(caster, target, spell)
+spellObject.onSpellCast = function(caster, target, spell, action)
     local params      = xi.spells.blue.getDefaultParams(caster)
     params.ecosystem  = xi.ecosystem.AMORPH
     params.attackType = xi.attackType.MAGICAL
@@ -30,6 +30,8 @@ spellObject.onSpellCast = function(caster, target, spell)
     params.azureBonus      = 2
     params.dStatMultiplier = 1.0
     params.baseDamageCap   = 51
+    params.halfThreshold   = 77
+    params.lowThreshold    = -30
 
     params.int_wsc = 0.2
     params.mnd_wsc = 0.1

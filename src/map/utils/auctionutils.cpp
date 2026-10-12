@@ -265,6 +265,14 @@ auto auctionutils::PurchasingItems(CCharEntity* PChar, GP_AUC_PARAM_BID param) -
                     }
                 }
             }
+
+            const CItem* PGil = PChar->getStorage(LOC_INVENTORY)->GetItem(0);
+            if (!PGil || PGil->getQuantity() < param.BidPrice)
+            {
+                PChar->pushPacket<GP_SERV_COMMAND_AUC>(GP_CLI_COMMAND_AUC_COMMAND::Bid, 0xC5, param.ItemNo, param.BidPrice, param.ItemStacks, PItem->getStackSize());
+                return false;
+            }
+
             auto transaction = ItemClaimTransaction::start(PChar);
             if (!transaction)
             {
@@ -280,7 +288,7 @@ auto auctionutils::PurchasingItems(CCharEntity* PChar, GP_AUC_PARAM_BID param) -
                 [&]()
                 {
                     const auto rset = db::preparedStmt("UPDATE auction_house SET buyer = ?, buyer_name = ?, sale = ?, sell_date = ? WHERE itemid = ? AND buyer_name IS NULL "
-                                                       "AND stack = ? AND price <= ? ORDER BY price LIMIT 1",
+                                                       "AND stack = ? AND price <= ? ORDER BY price ASC, id ASC LIMIT 1",
                                                        PChar->id,
                                                        PChar->getName(),
                                                        param.BidPrice,
@@ -345,6 +353,14 @@ void auctionutils::CancelSale(CCharEntity* PChar, int8_t AucWorkIndex)
     if (AucWorkIndex < PChar->m_ah_history.size())
     {
         AuctionHistory_t canceledItem = PChar->m_ah_history[AucWorkIndex];
+
+        const CItem* PListedItem = xi::items::lookup(canceledItem.itemid);
+        const bool   isRareHeld  = PListedItem && PListedItem->hasFlag(ItemFlag::Rare) && charutils::HasItem(PChar, canceledItem.itemid);
+        if (PChar->getStorage(LOC_INVENTORY)->GetFreeSlotsCount() == 0 || isRareHeld)
+        {
+            PChar->pushPacket<GP_SERV_COMMAND_AUC>(GP_CLI_COMMAND_AUC_COMMAND::LotCancel, 0xE5, PChar, static_cast<uint8_t>(AucWorkIndex), true);
+            return;
+        }
 
         auto transaction = ItemClaimTransaction::start(PChar);
         if (!transaction)

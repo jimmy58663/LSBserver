@@ -74,8 +74,7 @@ templates:
       behaviors:
         aggressive: true
       spawn:
-        respawn: 300
-        type:    [at_night]
+        type: [scripted]
     loot:
       drops:
         - chance: common
@@ -131,7 +130,7 @@ templates:
         model_size:      1
         hitbox:         13
       spawn:
-        respawn: 300
+        type: [scripted]
     loot:
       drops:
         - chance: common
@@ -189,7 +188,7 @@ templates:
       behaviors:
         aggressive: true
       spawn:
-        respawn: 300
+        type: [scripted]
     loot:
       drops:
         - chance: common
@@ -243,7 +242,7 @@ templates:
         model_size:     1
         hitbox:        27
       spawn:
-        respawn: 300
+        type: [scripted]
     loot:
       drops:
         - chance: uncommon
@@ -304,8 +303,7 @@ templates:
       behaviors:
         aggressive: true
       spawn:
-        respawn: 300
-        type:    [weather]
+        type: [scripted]
     loot:
       drops:
         - chance: always
@@ -337,8 +335,7 @@ templates:
       behaviors:
         aggressive: true
       spawn:
-        respawn: 300
-        type:    [weather]
+        type: [scripted]
     loot:
       drops:
         - chance: always
@@ -373,37 +370,42 @@ spawns:
     level:    [21, 29]
   17682438:
     template: Sea_Crab
-    at:       [8.092, -7.268, 12.504, 17]
+    region:   region_1
     level:    [10, 20]
   17682439:
     template: Sea_Crab
-    at:       [3.079, -7.306, 4.414, 156]
+    region:   region_1
     level:    [10, 20]
   17682440:
     template: Sea_Pugil
-    at:       [-3.963, -7.268, 16.816, 181]
+    region:   region_1
     level:    [10, 20]
   17682441:
     template: Sea_Pugil
-    at:       [-7.740, -7.268, 12.937, 67]
+    region:   region_1
     level:    [10, 20]
   17682442:
     template: Sea_Monk
-    at:       [7.774, -7.268, 8.176, 241]
+    region:   region_1
     level:    [21, 29]
   17682443:
     template: Phantom
-    at:       [7.944, -7.268, 12.938, 63]
+    region:   region_1
     level:    [22, 25]
+    attributes:
+      spawn:
+        window:
+          start: 20
+          end:    4
   17682444:
     template: Thunder_Elemental
-    at:       [7.554, -7.268, 4.527, 59]
+    region:   region_1
     level:    [27, 29]
   17682445:
     template: Water_Elemental
-    at:       [0.378, -7.268, 18.255, 108]
+    region:   region_1
     level:    [27, 29]
   17682446:
     template: Sea_Horror
-    at:       [-0.329, -7.268, 5.820, 191]
+    region:   region_1
     level:    [60, 62]

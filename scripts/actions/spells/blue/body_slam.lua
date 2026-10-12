@@ -19,13 +19,14 @@ spellObject.onMagicCastingCheck = function(caster, target, spell)
     return 0
 end
 
-spellObject.onSpellCast = function(caster, target, spell)
+spellObject.onSpellCast = function(caster, target, spell, action)
     local params          = xi.spells.blue.getDefaultParams(caster)
     params.ecosystem      = xi.ecosystem.DRAGON
     params.tpModifier     = xi.spells.blue.tpMod.ATTACK
     params.attackType     = xi.attackType.PHYSICAL
     params.damageType     = xi.damageType.BLUNT
     params.skillchainType = xi.skillchainType.IMPACTION
+    params.shadowBehavior = xi.mobskills.shadowBehavior.NUMSHADOWS_3 -- guessed
 
     params.numHits       = 1
     params.ftp0          = 1.5
@@ -43,7 +44,7 @@ spellObject.onSpellCast = function(caster, target, spell)
 
     params.vit_wsc = 0.4
 
-    return xi.spells.blue.usePhysicalSpell(caster, target, spell, params)
+    return xi.spells.blue.usePhysicalSpell(caster, target, spell, params, action)
 end
 
 return spellObject

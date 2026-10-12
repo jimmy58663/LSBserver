@@ -19,7 +19,7 @@ spellObject.onMagicCastingCheck = function(caster, target, spell)
     return 0
 end
 
-spellObject.onSpellCast = function(caster, target, spell)
+spellObject.onSpellCast = function(caster, target, spell, action)
     local params       = xi.spells.blue.getDefaultParams(caster)
     params.ecosystem   = xi.ecosystem.BEASTMEN
     params.attackType  = xi.attackType.MAGICAL
@@ -29,7 +29,10 @@ spellObject.onSpellCast = function(caster, target, spell)
     params.ftp0            = 1.375
     params.dStatMultiplier = 1.0
     params.baseDamageCap   = 30
-    params.int_wsc         = 0.2
+    params.halfThreshold   = 25
+    params.lowThreshold    = -10
+
+    params.int_wsc =  0.2
 
     -- Handle damage.
     local damage = xi.spells.blue.useMagicalSpell(caster, target, spell, params)

@@ -138,11 +138,11 @@ if(earcut_hpp_ADDED) # header-only
     target_include_directories(earcut_hpp SYSTEM INTERFACE ${earcut_hpp_SOURCE_DIR}/include/)
 endif()
 
-# The pinned Glaze fix requires CMake 3.31, so expose its headers without adding its CMake project.
+# Glaze's own CMake project wants CMake 3.31, so expose its headers without adding it.
 CPMAddPackage(
     NAME glaze
     GITHUB_REPOSITORY stephenberry/glaze
-    GIT_TAG 2f6f5dcfe1a689bf79b443d83434fab264ce0a21
+    GIT_TAG v9.0.0
     DOWNLOAD_ONLY ON
 )
 if(glaze_ADDED)
@@ -249,7 +249,6 @@ if(bcrypt_ADDED) # bcrypt's cmake isn't suitable for us
             ${bcrypt_SOURCE_DIR}/src/crypt_blowfish.c
             ${bcrypt_SOURCE_DIR}/src/crypt_gensalt.c
             ${bcrypt_SOURCE_DIR}/src/wrapper.c
-            ${bcrypt_SOURCE_DIR}/src/x86.S
     )
     target_include_directories(bcrypt
         SYSTEM INTERFACE
@@ -257,13 +256,6 @@ if(bcrypt_ADDED) # bcrypt's cmake isn't suitable for us
             $<$<PLATFORM_ID:Linux>:${bcrypt_SOURCE_DIR}/include/bcrypt/>
     )
 endif()
-
-CPMAddPackage(
-    NAME alpaca
-    GITHUB_REPOSITORY p-ranav/alpaca
-    GIT_TAG 83a592f0c3807500f1aaf3b07fd48105a01e2780
-    SYSTEM ON
-) # defines: alpaca
 
 CPMAddPackage(
     NAME magic_enum
@@ -342,7 +334,7 @@ set(SHARED_EXTERNAL_LIBS
     expected-lite
     pcg-cpp
     asio
-    alpaca
+    glaze::glaze
     magic_enum
     utf8cpp
     unordered_dense::unordered_dense

@@ -55,6 +55,7 @@ zones[xi.zone.WINDURST_WATERS] =
         JOURILLE_CLOSED_DIALOG        = 8975,  -- Greetings! I am Jourille, your friendly neighborhood traveling merchant. I would most like to sell you something from Ronfaure right now, but I regret that I am waiting on my next shipment. Please call by later!
         YOU_SHOW_OFF_THE              = 9151,  -- You show off the <item>.
         CONQUEST                      = 9261,  -- You've earned conquest points!
+        FENRIR_UNLOCKED               = 10182, -- You are now able to summon Fenrir!
         TRICK_OR_TREAT                = 10210, -- Trick or treat...
         THANK_YOU_TREAT               = 10211, -- Thank you... And now for your treat...
         HERE_TAKE_THIS                = 10212, -- Here, take this...
@@ -67,6 +68,7 @@ zones[xi.zone.WINDURST_WATERS] =
         NESSRUGETOMALL_SHOP_DIALOG    = 11509, -- Welcome to the Rarab Tail Hostelry.
         DIABOLOS_UNLOCKED             = 11938, -- You are now able to summon Diabolos!
         DOOR_FIRMLY_SHUT              = 12346, -- The door is firmly shut...
+        MOG_HOUSE_NOT_OPEN            = 15080, -- That Mog House is not currently open for visits.
     },
 
     mob =

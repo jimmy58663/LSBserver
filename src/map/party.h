@@ -52,6 +52,7 @@ enum PARTYFLAG : uint16
     ALLIANCE_LEADER = 0x0008,
     PARTY_QM        = 0x0010,
     PARTY_SYNC      = 0x0100,
+    PARTY_MOGHOUSE  = 0x0200, // Mog House open to the party/alliance
 };
 
 DECLARE_FORMAT_AS_UNDERLYING(PARTYFLAG);
@@ -101,6 +102,8 @@ public:
 
     timer::time_point GetTimeLastMemberJoined();
     bool              HasTrusts();
+    void              MarkFormedByTrusts();
+    bool              IsFormedByTrusts() const;
 
     std::size_t GetMemberCountAcrossAllProcesses();
 
@@ -125,6 +128,7 @@ private:
     CBattleEntity* m_PQuarterMaster; // the assigned Quartermaster
 
     bool m_EffectsChanged;
+    bool m_FormedByTrusts{ false };
 
     void                     SetLeader(const std::string& MemberName);        // set party leader
     void                     SetQuarterMaster(const std::string& MemberName); // set Quartermaster

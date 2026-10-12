@@ -42,7 +42,6 @@
 #include "packets/s2c/0x029_battle_message.h"
 #include "packets/s2c/0x076_group_effects.h"
 #include "packets/s2c/0x0ac_command_data.h"
-#include "packets/s2c/0x0b4_config.h"
 #include "packets/s2c/0x0c8_group_tbl.h"
 #include "packets/s2c/0x0dd_group_list.h"
 
@@ -73,7 +72,7 @@ CParty::CParty(CBattleEntity* PEntity)
     if (PEntity != nullptr && PEntity->PParty == nullptr)
     {
         m_PartyID   = PEntity->id;
-        m_PartyType = PEntity->objtype == TYPE_PC ? PARTY_PCS : PARTY_MOBS;
+        m_PartyType = dynamic_cast<const CCharEntity*>(PEntity) != nullptr ? PARTY_PCS : PARTY_MOBS;
 
         AddMember(PEntity);
         SetLeader(PEntity->name);
@@ -240,12 +239,10 @@ auto CParty::MemberCount(const xi::ZoneId ZoneID) -> uint8
         {
             count++;
         }
-        if (member->objtype == TYPE_PC)
+        if (auto* charMember = dynamic_cast<CCharEntity*>(member))
         {
-            auto* charMember = static_cast<CCharEntity*>(member);
-            std::for_each(
-                charMember->PTrusts.begin(),
-                charMember->PTrusts.end(),
+            std::ranges::for_each(
+                charMember->PTrusts,
                 [&](CTrustEntity* trust)
                 {
                     count++;
@@ -269,15 +266,13 @@ CBattleEntity* CParty::GetMemberByName(const std::string& memberName)
         return nullptr;
     }
 
-    for (auto& member : members)
-    {
-        if (strcmpi(memberName.c_str(), member->getName().c_str()) == 0)
-        {
-            return member;
-        }
-    }
+    const auto it = std::ranges::find_if(members,
+                                         [&](const auto* member)
+                                         {
+                                             return strcmpi(memberName.c_str(), member->getName().c_str()) == 0;
+                                         });
 
-    return nullptr;
+    return it != members.end() ? *it : nullptr;
 }
 
 void CParty::RemoveMember(CBattleEntity* PEntity)
@@ -301,14 +296,12 @@ void CParty::RemoveMember(CBattleEntity* PEntity)
     }
     else
     {
-        auto memberToDelete = std::find(members.begin(), members.end(), PEntity);
+        auto memberToDelete = std::ranges::find(members, PEntity);
 
         if (memberToDelete != members.end())
         {
-            if (m_PartyType == PARTY_PCS && PEntity->objtype == TYPE_PC)
+            if (auto* PChar = dynamic_cast<CCharEntity*>(PEntity); m_PartyType == PARTY_PCS && PChar)
             {
-                CCharEntity* PChar = static_cast<CCharEntity*>(PEntity);
-
                 if (m_PQuarterMaster == PChar)
                 {
                     SetQuarterMaster("");
@@ -398,14 +391,12 @@ void CParty::DelMember(CBattleEntity* PEntity)
     }
     else
     {
-        auto memberToDelete = std::find(members.begin(), members.end(), PEntity);
+        auto memberToDelete = std::ranges::find(members, PEntity);
 
         if (memberToDelete != members.end())
         {
-            if (m_PartyType == PARTY_PCS && PEntity->objtype == TYPE_PC)
+            if (auto* PChar = dynamic_cast<CCharEntity*>(PEntity); m_PartyType == PARTY_PCS && PChar)
             {
-                CCharEntity* PChar = static_cast<CCharEntity*>(PEntity);
-
                 if (m_PQuarterMaster == PChar)
                 {
                     SetQuarterMaster("");
@@ -468,7 +459,7 @@ void CParty::PopMember(CBattleEntity* PEntity)
         return;
     }
 
-    auto memberToDelete = std::find(members.begin(), members.end(), PEntity);
+    auto memberToDelete = std::ranges::find(members, PEntity);
 
     if (memberToDelete != members.end())
     {
@@ -500,16 +491,7 @@ void CParty::PopMember(CBattleEntity* PEntity)
                 m_PAlliance->setMainParty(nullptr);
             }
 
-            auto it = m_PAlliance->partyList.begin();
-            while (it != m_PAlliance->partyList.end())
-            {
-                if (this == *it)
-                {
-                    it = m_PAlliance->partyList.erase(it);
-                    continue;
-                }
-                it++;
-            }
+            std::erase(m_PAlliance->partyList, this);
 
             if (m_PAlliance->partyList.empty())
             {
@@ -613,19 +595,19 @@ void CParty::AddMember(CBattleEntity* PEntity)
         return;
     }
 
-    if (std::find(members.begin(), members.end(), PEntity) != members.end())
+    if (std::ranges::contains(members, PEntity))
     {
         ShowWarning("CParty::AddMember() - PEntity was already in the member list!");
         return;
     }
 
-    if (PEntity->objtype == TYPE_PC && m_PartyType == PARTY_PCS && IsFull())
+    if (dynamic_cast<const CCharEntity*>(PEntity) != nullptr && m_PartyType == PARTY_PCS && IsFull())
     {
         ShowWarning("CParty::AddMember() - Party was full when trying to add a member.");
         return;
     }
 
-    if (PEntity->objtype == TYPE_PC && m_PartyType == PARTY_PCS && HasTrusts())
+    if (dynamic_cast<const CCharEntity*>(PEntity) != nullptr && m_PartyType == PARTY_PCS && HasTrusts())
     {
         ShowWarning("CParty::AddMember() - Party had summoned trusts when trying to add a member.");
         return;
@@ -634,7 +616,7 @@ void CParty::AddMember(CBattleEntity* PEntity)
     PEntity->PParty = this;
     members.emplace_back(PEntity);
 
-    if (PEntity->objtype == TYPE_PC && this->members.size() > 1)
+    if (dynamic_cast<const CCharEntity*>(PEntity) != nullptr && this->members.size() > 1)
     {
         auto* PLeader = dynamic_cast<CCharEntity*>(CParty::GetLeader());
 
@@ -683,15 +665,7 @@ void CParty::AddMember(CBattleEntity* PEntity)
 
         if (PChar->isSeekingParty())
         {
-            PChar->playerConfig.InviteFlg = false;
-            PChar->updatemask |= UPDATE_HP;
-
-            charutils::SaveCharStats(PChar);
-            charutils::SavePlayerSettings(PChar);
-
-            PChar->pushPacket<GP_SERV_COMMAND_CONFIG>(PChar);
-            PChar->pushPacket<CCharStatusPacket>(PChar);
-            PChar->pushPacket<CCharSyncPacket>(PChar);
+            charutils::RemoveSeekFlag(PChar);
         }
 
         PChar->PTreasurePool->updatePool(PChar);
@@ -766,20 +740,6 @@ void CParty::AddMember(uint32 id)
                 .partyId = m_PartyID,
             });
         }
-
-        /*if (PChar->nameflags.flags & FLAG_INVITE)
-        {
-            PChar->nameflags.flags ^= FLAG_INVITE;
-            PChar->updatemask |= UPDATE_HP;
-
-            charutils::SaveCharStats(PChar);
-
-            PChar->status = STATUS_UPDATE;
-            PChar->pushPacket<GP_SERV_COMMAND_CONFIG>(PChar);
-            PChar->pushPacket<CCharStatusPacket>(PChar);
-            PChar->pushPacket<CCharSyncPacket>(PChar);
-        }
-        PChar->PTreasurePool->UpdatePool(PChar);*/
     }
 }
 
@@ -1142,9 +1102,8 @@ void CParty::SetSyncTarget(const std::string& MemberName, MsgStd message)
 
     if (settings::get<bool>("map.LEVEL_SYNC_ENABLE"))
     {
-        if (PEntity && PEntity->objtype == TYPE_PC && GetLeader() != nullptr)
+        if (auto* PChar = dynamic_cast<CCharEntity*>(PEntity); PChar && GetLeader() != nullptr)
         {
-            CCharEntity* PChar = (CCharEntity*)PEntity;
             // enable level sync
             if (PChar->GetMLevel() < 10)
             {
@@ -1169,12 +1128,11 @@ void CParty::SetSyncTarget(const std::string& MemberName, MsgStd message)
                 m_PSyncTarget = PChar;
                 for (auto& i : members)
                 {
-                    if (i->objtype != TYPE_PC)
+                    auto* member = dynamic_cast<CCharEntity*>(i);
+                    if (!member)
                     {
                         continue;
                     }
-
-                    CCharEntity* member = (CCharEntity*)i;
 
                     if (member->status != xi::Status::Disappear && member->getZone() == PChar->getZone())
                     {
@@ -1203,12 +1161,11 @@ void CParty::SetSyncTarget(const std::string& MemberName, MsgStd message)
                 // disable level sync
                 for (auto& i : members)
                 {
-                    if (i->objtype != TYPE_PC)
+                    auto* member = dynamic_cast<CCharEntity*>(i);
+                    if (!member)
                     {
                         continue;
                     }
-
-                    CCharEntity* member = (CCharEntity*)i;
 
                     if (member->status != xi::Status::Disappear)
                     {
@@ -1256,12 +1213,11 @@ void CParty::PushPacket(uint32 senderID, xi::ZoneId ZoneID, const std::unique_pt
 {
     for (auto& i : members)
     {
-        if (i == nullptr || i->objtype != TYPE_PC)
+        auto* member = dynamic_cast<CCharEntity*>(i);
+        if (!member)
         {
             continue;
         }
-
-        CCharEntity* member = (CCharEntity*)i;
 
         if (member->id != senderID && member->status != xi::Status::Disappear && !jailutils::InPrison(member))
         {
@@ -1324,12 +1280,11 @@ void CParty::RefreshSync()
     }
     for (auto& i : members)
     {
-        if (i->objtype != TYPE_PC || i->getZone() != sync->getZone())
+        auto* member = dynamic_cast<CCharEntity*>(i);
+        if (!member || member->getZone() != sync->getZone())
         {
             continue;
         }
-
-        CCharEntity* member = (CCharEntity*)i;
 
         uint8 NewMLevel = 0;
 
@@ -1348,10 +1303,12 @@ void CParty::RefreshSync()
             syncEffect->SetPower(syncLevel);
         }
 
+        // Members below the sync keep their level but must track the new cap or their own next level up stays capped at the old one
+        member->m_LevelRestriction = syncLevel;
+
         if (member->GetMLevel() != NewMLevel)
         {
             charutils::RemoveAllEquipMods(member);
-            member->m_LevelRestriction = NewMLevel;
             member->SetMLevel(NewMLevel);
             member->SetSLevel(member->jobs.job[static_cast<uint8>(member->GetSJob())]);
             charutils::ApplyAllEquipMods(member);
@@ -1440,6 +1397,16 @@ bool CParty::HasTrusts()
         }
     }
     return false;
+}
+
+void CParty::MarkFormedByTrusts()
+{
+    m_FormedByTrusts = true;
+}
+
+bool CParty::IsFormedByTrusts() const
+{
+    return m_FormedByTrusts;
 }
 
 void CParty::RefreshFlags(std::vector<partyInfo_t>& info)

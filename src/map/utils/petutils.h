@@ -24,6 +24,12 @@
 
 #include "common/cbasetypes.h"
 #include "common/mmo.h"
+#include "data/enums/damage_type.h"
+#include "data/enums/ecosystem.h"
+#include "data/enums/skill_type.h"
+#include "modifier.h"
+
+#include <string>
 
 enum PETID
 {
@@ -181,6 +187,7 @@ struct Pet_t
     float HPscale; // HP boost percentage
     float MPscale; // MP boost percentage
 
+    xi::SkillType  cmbSkill;
     uint16         cmbDelay;
     xi::DamageType m_dmgType;
     uint8          speed;
@@ -253,6 +260,7 @@ struct Pet_t
     , m_Element(0)
     , HPscale(1.f)
     , MPscale(1.f)
+    , cmbSkill(xi::SkillType::None)
     , cmbDelay(0)
     , m_dmgType(xi::DamageType::None)
     , speed(0)

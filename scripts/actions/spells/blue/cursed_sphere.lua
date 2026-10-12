@@ -19,7 +19,7 @@ spellObject.onMagicCastingCheck = function(caster, target, spell)
     return 0
 end
 
-spellObject.onSpellCast = function(caster, target, spell)
+spellObject.onSpellCast = function(caster, target, spell, action)
     local params      = xi.spells.blue.getDefaultParams(caster)
     params.ecosystem  = xi.ecosystem.VERMIN
     params.attackType = xi.attackType.MAGICAL
@@ -29,6 +29,8 @@ spellObject.onSpellCast = function(caster, target, spell)
     params.ftp0            = 1.50
     params.dStatMultiplier = 1.0
     params.baseDamageCap   = 30
+    params.halfThreshold   = 46
+    params.lowThreshold    = -6
 
     params.int_wsc = 0.3
 
